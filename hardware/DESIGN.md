@@ -1,6 +1,17 @@
-# Tape-port modem board, rev B: ESP32-S3 SuperMini carrier
+# Tape-port modem board, rev C: ESP32-S3 SuperMini carrier
 
-## Rev B (current) — what changed and why
+## Rev C (current) — the jack pinout fix
+
+Rev C is rev B with one correction: in both jacks the **signal moves to pin 5 (tip)** and **pin 2 (ring) becomes ground**. Pin 1 (sleeve) stays ground; pins 3 and 4 (switch contacts) stay unconnected. Everything else (parts, placement, size, order files) is unchanged; the board is re-routed around the two new connections.
+
+- **Why:** the PJ-307 that JLCPCB fits (HOOYA, LCSC C2939173) has tip = pin 5, ring = pin 2, sleeve = pin 1. Rev B was wired from a measurement of a different maker's PJ-307 (tip = 2, ring = 5): "PJ-307" names a body style, not a fixed pinout. Found on the first rev B boards, 2026-11-13.
+- **Ring = ground, not unconnected:** a mono plug's long sleeve touches both the ring and sleeve contacts, so the ring must not carry the signal.
+- **Checks (2026-11-20):** netlist check OK, ERC 0, DRC 0 errors and 0 unconnected with schematic parity (6 silk-at-edge warnings from the jack outlines, as on rev B), JLCPCB placement check worst 0.16 mm (jacks 0.00 mm). **Not built yet.**
+- The project's PJ-307 symbol now labels pin 5 "T" and pin 2 "R" (the switch contacts: 3 "RN", 4 "TN", by position; their pairing isn't measured, and they're unused).
+
+**Rev B boards** (the first batch) have the signal on the ring contact and ground on the tip. Workarounds, no board cuts: solder a mono cable to the underside joints (core to pin 2, shield to pin 1) and never plug anything into the jacks; or use a tip/ring swap adapter or cable (board-side ring to Spectrum-side tip). See `docs/hardware.md`.
+
+## Rev B — what changed from rev A and why
 
 Rev B follows a hardware review: make it cheaper and easier to build.
 
@@ -9,7 +20,7 @@ Rev B follows a hardware review: make it cheaper and easier to build.
 | ESP32 | ESP32-S3-WROOM-1 module on the board, plus USB-C, USBLC6 ESD, AMS1117, EN/BOOT/RESET parts | **ESP32-S3 SuperMini dev board, hand-soldered** (USB-C, 3.3 V regulator, BOOT/RESET on the dev board) | Every ESP32 module JLCPCB stocks is "Standard PCBA only" (X-ray); the dev board avoids that fee and ~15 parts |
 | Assembly | Standard PCBA (module) | **Economic PCBA** for the 22 SMD parts plus the two PJ-307 jacks (C2939173, wave soldered by JLCPCB); you solder only the SuperMini | Cheaper; the jacks cost the same at JLCPCB as locally |
 | Passives | 0402 | **0805** everywhere | Easier to rework by hand |
-| Jacks | SMD PJ-320D-4A | **Through-hole PJ-307** stereo jack. Pinout **measured on the local jacks: 1 sleeve, 2 tip, 5 ring (right); 3 and 4 are switch contacts that carry nothing with a plug in.** Board: 2 = signal, 1 and 5 = GND, 3 and 4 unconnected (so no switch can short the signal when no plug is in). **Assembled by JLCPCB** (HOOYA PJ-307, LCSC C2939173, Extended part, through-hole by wave soldering, so expect a THT assembly fee on the quote). Footprint from the HOOYA PJ-307 data (matches JLCPCB's footprint to 0.00 mm, all pin numbers agree) and the PJ-307 datasheet drawing (0.8 x 1.7 mm slots, 5 x 1.2 mm pegs) | Two were on hand; the Lumberg 1503 07 first chosen looks discontinued. Optional check before ordering: lay a jack on the 1:1 print `kicad/zx-modem-1to1-check.pdf` (print at 100 %) |
+| Jacks | SMD PJ-320D-4A | **Through-hole PJ-307** stereo jack. Pinout **measured on the local jacks: 1 sleeve, 2 tip, 5 ring (right); 3 and 4 are switch contacts that carry nothing with a plug in.** Rev B board: 2 = signal, 1 and 5 = GND, 3 and 4 unconnected (**wrong for the JLCPCB-fitted HOOYA part: fixed in rev C**) (so no switch can short the signal when no plug is in). **Assembled by JLCPCB** (HOOYA PJ-307, LCSC C2939173, Extended part, through-hole by wave soldering, so expect a THT assembly fee on the quote). Footprint from the HOOYA PJ-307 data (matches JLCPCB's footprint to 0.00 mm, all pin numbers agree) and the PJ-307 datasheet drawing (0.8 x 1.7 mm slots, 5 x 1.2 mm pegs) | Two were on hand; the Lumberg 1503 07 first chosen looks discontinued. Optional check before ordering: lay a jack on the 1:1 print `kicad/zx-modem-1to1-check.pdf` (print at 100 %) |
 | Hysteresis | 3314J trimmer (about EUR 2.80) | **Fixed R11 = 1.5 k** -> 3.3 V x 1.5/471.5 = **10.5 mV** (the recommended setting; simulation passes at 10 mV incl. +/-8 mV comparator offset) | Cheapest; to change it, swap the 0805 |
 | LEDs | power + status LED | none: the SuperMini has a power LED and an RGB LED on GP48 | Fewer parts |
 | Test header J4 | 7 probe holes | removed | Smaller board |
@@ -29,7 +40,7 @@ Rev B follows a hardware review: make it cheaper and easier to build.
 
 **Layout:** SuperMini on the left with USB-C flush to the left edge; no copper under its antenna end (both layers), and no top-side traces or vias under it (it is soldered flat, and its underside has bare pads). PJ-307 jacks on the right edge (openings out, pin 1 nearest the edge), PLAY button bottom middle. All nets routed, GND pour on both layers.
 
-**Known issue on the rev B boards (found 2026-11-13):** the PJ-307 that JLCPCB fits (HOOYA, C2939173) has **tip = pin 5, ring = pin 2**, sleeve = pin 1, the other way round from the local jacks the pinout was measured on. So rev B has the signal on the ring contact and GND on the tip. Workarounds, no board cuts: solder a mono cable to the underside joints (core to pin 2, shield to pin 1) and never plug anything into the jacks; or use a tip/ring swap adapter or cable. Rev C fix: swap the nets of pins 2 and 5.
+**Known issue on the rev B boards (found 2026-11-13), fixed in rev C:** the jacks' tip is pin 5, not pin 2, so rev B has the signal on the ring contact and GND on the tip (see "Rev C" above for the workarounds).
 
 **Order files** (`fab/`): `zx-modem-gerbers.zip`, `zx-modem-bom.csv` + `zx-modem-cpl.csv` (JLCPCB Economic PCBA, 24 parts incl. both jacks), `zx-modem-hand-solder.csv` (SuperMini only).
 

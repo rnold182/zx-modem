@@ -21,7 +21,7 @@ The browser is next.
 | [**ZX Modem Link Protocol 1**](docs/link-protocol.md) | the modem standard: tape signal, packet framing, the registry of services, response types and apps, every command, compatibility rules |
 | [**App API**](docs/app-api.md) | writing Spectrum apps and BASIC programs that use the modem: memory map, the fixed call table, a "hello" app, the BASIC `USR` entry points |
 | [`sdk/`](sdk/) | the include files apps build against |
-| [Hardware](docs/hardware.md) | the carrier board, connections, the rev B jack issue |
+| [Hardware](docs/hardware.md) | the carrier board (rev C), connections, pins, revisions |
 | [`hardware/DESIGN.md`](hardware/DESIGN.md) | the board's full design notes and simulation |
 
 ## How it works

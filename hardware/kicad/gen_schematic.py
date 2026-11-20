@@ -1,4 +1,4 @@
-"""Generate the rev A schematic (zx-modem.kicad_sch) from one parts + nets table.
+"""Generate the schematic (zx-modem.kicad_sch) from one parts + nets table.
 
 Usage (from the repo root):  python -I hardware/kicad/gen_schematic.py
 
@@ -47,16 +47,18 @@ PARTS = {
            {'1': 'GND', '2': '3V3', '3': 'TX_GPIO'}, (49, 16, 0), {}),
     'R5': ('Device:R', '220', R0805, 'C17557', {'1': 'TX_GPIO', '2': 'EAR_OUT'}, (57.5, 18, 90), {}),
     'R6': ('Device:R', 'DNP', R0805, '', {'1': 'EAR_OUT', '2': 'GND'}, (63, 19.5, 0), {'dnp': True}),
-    # PJ-307 jacks, pinout measured on the local jacks: 1 sleeve, 2 tip, 5 ring (right channel);
-    # 3 and 4 are switch contacts that carry nothing with a plug in, so they stay unconnected
-    # (that also keeps the signal from being shorted through a switch when no plug is in).
-    # Tip = signal; sleeve and ring = GND (a mono plug's sleeve touches the ring contact anyway).
-    # JLCPCB fits them (HOOYA PJ-307, C2939173, wave soldered); our footprint is drawn from theirs.
+    # PJ-307 jacks as JLCPCB fits them (HOOYA PJ-307, C2939173, wave soldered; our footprint
+    # is drawn from theirs). Pinout measured on rev B boards: 1 sleeve, 5 tip, 2 ring; 3 and 4
+    # are switch contacts that carry nothing with a plug in, so they stay unconnected (that
+    # also keeps the signal from being shorted through a switch when no plug is in).
+    # Tip = signal; sleeve and ring = GND (a mono plug's sleeve touches the ring contact).
+    # Rev C fix: rev B had signal and GND the other way round on pins 2 and 5, from a measurement
+    # of a different maker's PJ-307 (1 sleeve, 2 tip, 5 ring) - "PJ-307" is not a fixed pinout.
     'J2': ('zx-modem:PJ-307', 'EAR', JACK, 'C2939173',
-           {'2': 'EAR_OUT', '1': 'GND', '5': 'GND'}, (69, 19, 180), {}),
+           {'5': 'EAR_OUT', '1': 'GND', '2': 'GND'}, (69, 19, 180), {}),
     # --- RX from MIC: input R, 2-pole high-pass, clamp, comparator -------------------
     'J3': ('zx-modem:PJ-307', 'MIC', JACK, 'C2939173',
-           {'2': 'MIC_IN', '1': 'GND', '5': 'GND'}, (6, 56, 0, 'mx'), {}),
+           {'5': 'MIC_IN', '1': 'GND', '2': 'GND'}, (6, 56, 0, 'mx'), {}),
     'R20': ('Device:R', '1k', R0805, 'C17513', {'1': 'MIC_IN', '2': 'MIC_R'}, (13.5, 55, 90), {}),
     'C7': ('Device:C', '10n', C0805, 'C1710', {'1': 'MIC_R', '2': 'HP_A'}, (19.5, 55, 90), {}),
     'R7': ('Device:R', '68k', R0805, 'C17801', {'1': 'HP_A', '2': 'VBIAS'}, (24, 56.5, 0), {}),
@@ -464,7 +466,7 @@ def main():
 
     sch = ('(kicad_sch (version 20250114) (generator "gen_schematic.py") (generator_version "9.0")\n'
            f'(uuid "{ROOT_UUID}") (paper "A4")\n'
-           '(title_block (title "ZX Spectrum tape-port modem: SuperMini carrier") (rev "B") (comment 1 "See hardware/DESIGN.md"))\n'
+           '(title_block (title "ZX Spectrum tape-port modem: SuperMini carrier") (rev "C") (comment 1 "See hardware/DESIGN.md"))\n'
            '(lib_symbols\n' + '\n'.join(libs.values()) + '\n)\n'
            + '\n'.join(items) +
            '\n(sheet_instances (path "/" (page "1")))\n(embedded_fonts no)\n)\n')

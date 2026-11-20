@@ -36,6 +36,8 @@ apps/zx-vvv/spec/*
 !apps/zx-vvv/spec/GET-THE-SPEC.md
 # EasyEDA footprint data, downloaded by hardware/kicad/jlc_fit.py
 hardware/kicad/easyeda/
-# generated / personal order archives
+# generated / personal order archives, except the current board's Gerbers
+# (made by hardware/kicad/make_fab.py)
 hardware/fab/*.zip
+!hardware/fab/zx-modem-gerbers.zip
 *.zap

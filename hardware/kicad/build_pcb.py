@@ -1,4 +1,4 @@
-"""Build the rev B board (zx-modem.kicad_pcb): footprints, nets, outline, placement, rules.
+"""Build the rev C board (zx-modem.kicad_pcb): footprints, nets, outline, placement, rules.
 
 Usage (from the repo root), with KiCad's own Python (it has the pcbnew module):
   "C:/Program Files/KiCad/10.0/bin/python.exe" -I hardware/kicad/build_pcb.py
@@ -45,7 +45,7 @@ PLACE = {
 }
 # Silkscreen labels for the user: (text, x, y, angle).
 LABELS = [('MIC', 40.7, 6.4, 90), ('EAR', 40.7, 17.0, 90),
-          ('PLAY', 32.4, 22.6, 90), ('ZX MODEM rev B', 11.0, 24.3, 0)]
+          ('PLAY', 32.4, 22.6, 90), ('ZX MODEM rev C', 11.0, 24.3, 0)]
 HOLES = []                                            # small board: no mounting holes
 
 def load_fp(fpid):

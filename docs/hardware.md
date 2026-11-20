@@ -43,7 +43,18 @@ A classic ESP32 dev board works too (`idf.py set-target esp32`): TX GPIO25,
 RX GPIO26, the BOOT button (GPIO0) as PLAY, LED on GPIO2. Its MIC input still
 needs a comparator stage like the one above.
 
-## Rev B jack issue
+## Board revisions
+
+| Rev | Status | Jacks |
+|---|---|---|
+| **C** (current files) | designed and checked, **not built yet** | correct: signal on pin 5 (tip), ground on pins 1 and 2 |
+| B | built (first batch) | **signal and ground swapped**: see below |
+
+The order files for rev C are in `hardware/fab/`: Gerbers, BOM and
+placement for JLCPCB (Economic PCBA; you solder only the SuperMini).
+`hardware/kicad/make_fab.py` regenerates them.
+
+### Rev B jack issue
 
 The PJ-307 jacks JLCPCB fits (HOOYA, LCSC C2939173) have **tip = pin 5,
 ring = pin 2**, the other way round from the jacks the pinout was first
@@ -54,10 +65,6 @@ on the tip. Workarounds, with no board changes:
   pin 1, and plug nothing into the jacks; or
 - use a stereo plug-to-socket adapter with tip and ring swapped, or a cable
   wired board-side ring to Spectrum-side tip.
-
-Rev C will swap the nets of pins 2 and 5 (`hardware/DESIGN.md`). The order
-files in `hardware/fab/` are rev B's BOM and placement; the Gerbers can be
-regenerated with `hardware/kicad/make_fab.py`.
 
 ## Debugging without instruments
 
