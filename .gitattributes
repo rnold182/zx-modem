@@ -1,0 +1,6 @@
+# Keep LF in the repo and the working tree (tools and generators write LF;
+# avoids CRLF churn with core.autocrlf=true on Windows).
+* text=auto eol=lf
+*.wav binary
+*.zip binary
+*.pdf binary

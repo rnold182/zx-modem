@@ -1,0 +1,27 @@
+menu "ZX modem"
+
+    config ZXMODEM_WIFI_SSID
+        string "Wi-Fi network name (SSID)"
+        default ""
+        help
+            Development setting until the Spectrum's Wi-Fi setup screen exists
+            (M2b). Empty = Wi-Fi not set up.
+
+    config ZXMODEM_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default ""
+        help
+            Stored in the firmware image in plain text: development only.
+
+    config ZXMODEM_TZ
+        string "Time zone (POSIX TZ string)"
+        default "CET-1CEST,M3.5.0,M10.5.0/3"
+        help
+            Local time for the menu clock. The default is Central European
+            Time with daylight saving (Hungary).
+
+    config ZXMODEM_NTP_SERVER
+        string "NTP server"
+        default "pool.ntp.org"
+
+endmenu

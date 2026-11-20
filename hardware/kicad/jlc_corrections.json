@@ -1,0 +1,42 @@
+{
+ "C2869832": {
+  "dx": -0.0001,
+  "dy": 0.0,
+  "err_mm": 0.04,
+  "numbers_agree": 5,
+  "pads_jlc": 5,
+  "pads_kicad": 5,
+  "phi": 180,
+  "ref": "U4"
+ },
+ "C2939173": {
+  "dx": 0.0,
+  "dy": 0.0,
+  "err_mm": 0.0,
+  "numbers_agree": 5,
+  "pads_jlc": 5,
+  "pads_kicad": 5,
+  "phi": 0,
+  "ref": "J2"
+ },
+ "C318884": {
+  "dx": 0.0,
+  "dy": 0.0,
+  "err_mm": 0.03,
+  "numbers_agree": 1,
+  "pads_jlc": 4,
+  "pads_kicad": 4,
+  "phi": 0,
+  "ref": "SW3"
+ },
+ "C47546": {
+  "dx": -0.0,
+  "dy": -0.0,
+  "err_mm": 0.16,
+  "numbers_agree": 3,
+  "pads_jlc": 3,
+  "pads_kicad": 3,
+  "phi": 180,
+  "ref": "D2"
+ }
+}

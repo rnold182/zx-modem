@@ -1,0 +1,6 @@
+# Settings shared by all targets. Target-specific ones are in
+# sdkconfig.defaults.<target>, which ESP-IDF applies automatically.
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_FREERTOS_HZ=1000
+# 1.5 MB app slot: Wi-Fi + HTTPS (TLS, certificate bundle) outgrow 1 MB.
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
