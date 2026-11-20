@@ -14,6 +14,21 @@ itself, web fetches from BASIC, and an 8TML browser in the making
 Wi-Fi setup with saved networks, HTTP and HTTPS fetches for BASIC programs.
 The browser is next.
 
+## Screenshots
+
+| | |
+|---|---|
+| ![The ZX MODEM menu](docs/images/menu.png) | ![Modem Info](docs/images/modem-info.png) |
+| **The menu.** Items come from the modem's app list; the status line keeps the time between requests. | **Modem Info:** firmware, protocol, Wi-Fi, address, signal and clock, straight from the modem. |
+| ![Wi-Fi setup: the network list](docs/images/wifi-setup.png) | ![Wi-Fi setup: password entry](docs/images/wifi-password.png) |
+| **Wi-Fi Setup**, an app the menu downloads: signal bars, padlocks, a tick for the connected network, dots for saved ones. | **Password entry** on the Spectrum's keyboard, masked (CAPS+4 shows it). |
+| ![Wi-Fi setup: connected](docs/images/wifi-connected.png) | ![A BASIC program fetching the weather](docs/images/basic-fetch.png) |
+| **Connected:** the modem saves the network and rejoins it by itself. | **From BASIC:** `LET U$="http://wttr.in/..."`, `USR 32771` fetches, `USR 32774` prints. |
+
+*Captured in the Fuse emulator with recorded modem replies standing in for
+the ESP32 (so the network names and the time are made up); a real 48K shows
+exactly the same screens.*
+
 ## Documentation
 
 | Document | For |
@@ -82,6 +97,44 @@ can fetch a web page through it ([App API §5](docs/app-api.md#5-basic-programs)
 
 `https://` works too (the ESP32 does TLS). `RANDOMIZE USR 32768` goes back to
 the menu. A longer example: [`zx/basic/fetchdemo.asm`](zx/basic/fetchdemo.asm).
+
+## Next: zx-vvv, an 8TML browser
+
+[8TML](https://t8wn.com/8tml/) is a tiny markup language for a retro web:
+plain ASCII pages, readable on 8-bit machines, a lot like Markdown. **zx-vvv**
+will be the official ZX Spectrum port of VVV, its reference browser, running
+on the 48K through this modem ([`apps/zx-vvv/`](apps/zx-vvv/)):
+
+- **The Spectrum is the browser:** it parses the page itself (headings,
+  paragraphs, lists, quotes, preformatted text, emphasis, colour tags,
+  links) and lays it out in 32 columns with Spectrum colours, bold and
+  italic fonts.
+- **Links and history:** cursor keys move between links, ENTER follows one,
+  B goes back; G types an address.
+- **The modem is the network card:** HTTPS, redirects, resolving relative
+  links and checking content types, and converting UTF-8 to ASCII. It never
+  pre-renders the page.
+- **Later:** stylesheets (`site.8ss`) and forms. The first home page:
+  T8wn's own, which is served as live 8TML.
+
+A page and how zx-vvv will lay it out (the layout comes from the 8TML
+reference tool, the browser's test oracle):
+
+```
+---                                    Hello from a 48K
+8tml: 1
+title: My plot                         8TML is plain text with a little
+case: mixed                            markup: emphasis, colours, links
+---                                    and lists.
+# Hello from a 48K
+                                       * Parsed on the Spectrum itself
+8TML is plain text with a little       * 32 columns, Spectrum colours
+markup: *emphasis*, <yellow>colours</>,
+[links](news.8tml) and lists.
+
+* Parsed on the Spectrum itself
+* 32 columns, Spectrum colours
+```
 
 ## Building
 

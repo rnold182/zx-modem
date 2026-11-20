@@ -1,11 +1,12 @@
-"""MIC front-end simulation for the tape-port modem board (rev A).
+"""MIC front-end simulation for the tape-port modem board (rev B/C; rev A had the same network).
 
-Usage:  python -I hardware/sim/frontend_sim.py exporrt2.wav
+Usage:  python -I hardware/sim/frontend_sim.py [recording.wav]
+        (default: host/tests/data/zx48k-save-test.wav)
 
 Feeds a real 48K SAVE recording (left channel) through the analogue front end
 and decodes the comparator output with ROM-style rules (pilot run >= 256, sync,
 bit pairs classified by their summed length, XOR checksum). It prints exactly the
-cases quoted in hardware/DESIGN.md section 3d.
+cases quoted in hardware/DESIGN.md ("MIC input").
 
 Circuit modelled (absolute voltages, GND = 0):
   Vs (recording scaled to the given open-circuit p-p, plus optional 50 Hz hum)
@@ -21,7 +22,7 @@ C8/C7 (the DC-restorer effect), which a "clamp a copy of B" model misses.
 Diode: I = Is*(exp(V/nVt)-1), Is = 1e-7 A, nVt = 34.7 mV. That gives about 0.24 V at
 0.1 mA and 0.32 V at 1 mA, close to the BAT54 datasheet curve.
 """
-import array, math, random, sys, wave
+import array, math, os, random, sys, wave
 
 V33 = 3.3
 IS, NVT = 1e-7, 0.0347
@@ -125,35 +126,36 @@ def ok(blocks): return blocks == [(19, True), (57, True)]
 
 NETS = {
     # previous proposal: LM393, bias 1.06 V, low input impedance, no input resistor
-    'old': dict(R7=6.8e3, C7=100e-9, R8=68e3, C8=10e-9, VB=1.06, RIN=0.0),
+    'draft': dict(R7=6.8e3, C7=100e-9, R8=68e3, C8=10e-9, VB=1.06, RIN=0.0),
     # rev A: CMOS rail-to-rail comparator, mid-rail bias, 10x higher impedance, 1k input resistor
-    'revA': dict(R7=68e3, C7=10e-9, R8=680e3, C8=1e-9, VB=1.65, RIN=1e3),
+    'board': dict(R7=68e3, C7=10e-9, R8=680e3, C8=1e-9, VB=1.65, RIN=1e3),
 }
 
 # (net, Rsrc ohm, Vpp open-circuit, hum ratio, hysteresis V) -- exactly the DESIGN.md table
 CASES = [
-    ('old',  100,  5.0, 0.0, 0.060),
-    ('old',  100,  6.0, 0.0, 0.060),
-    ('revA', 10e3, 0.05, 0.0, 0.010),
-    ('revA', 10e3, 0.2, 0.0, 0.010),
-    ('revA', 10e3, 0.2, 4.0, 0.010),
-    ('revA', 10e3, 1.0, 4.0, 0.040),
-    ('revA', 10e3, 5.0, 0.2, 0.040),
-    ('revA', 10e3, 6.0, 0.0, 0.040),
-    ('revA', 100,  0.2, 4.0, 0.010),
-    ('revA', 100,  5.0, 0.2, 0.040),
-    ('revA', 100,  6.0, 0.0, 0.010),
-    ('revA', 100,  6.0, 0.0, 0.040),
+    ('draft', 100,  5.0, 0.0, 0.060),
+    ('draft', 100,  6.0, 0.0, 0.060),
+    ('board', 10e3, 0.05, 0.0, 0.010),
+    ('board', 10e3, 0.2, 0.0, 0.010),
+    ('board', 10e3, 0.2, 4.0, 0.010),
+    ('board', 10e3, 1.0, 4.0, 0.040),
+    ('board', 10e3, 5.0, 0.2, 0.040),
+    ('board', 10e3, 6.0, 0.0, 0.040),
+    ('board', 100,  0.2, 4.0, 0.010),
+    ('board', 100,  5.0, 0.2, 0.040),
+    ('board', 100,  6.0, 0.0, 0.010),
+    ('board', 100,  6.0, 0.0, 0.040),
     # TLV7031 worst-case input offset (8 mV max), both signs; the sixth field overrides the +3 mV default
-    ('revA', 10e3, 0.05, 0.0, 0.010, +0.008),
-    ('revA', 10e3, 0.05, 0.0, 0.010, -0.008),
-    ('revA', 10e3, 0.2, 4.0, 0.010, +0.008),
-    ('revA', 10e3, 0.2, 4.0, 0.010, -0.008),
-    ('revA', 100,  6.0, 0.0, 0.040, -0.008),
+    ('board', 10e3, 0.05, 0.0, 0.010, +0.008),
+    ('board', 10e3, 0.05, 0.0, 0.010, -0.008),
+    ('board', 10e3, 0.2, 4.0, 0.010, +0.008),
+    ('board', 10e3, 0.2, 4.0, 0.010, -0.008),
+    ('board', 100,  6.0, 0.0, 0.040, -0.008),
 ]
 
 if __name__ == '__main__':
-    raw, fr, pp = load(sys.argv[1] if len(sys.argv) > 1 else 'exporrt2.wav')
+    raw, fr, pp = load(sys.argv[1] if len(sys.argv) > 1 else os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), '..', '..', 'host', 'tests', 'data', 'zx48k-save-test.wav'))
     print('net   Rsrc   Vpp   hum  hyst  offs  | decode | B min..max V | clamp mA | ADC pin V   | DC shift mV')
     for net, rsrc, vpp, hum, hy, *rest in CASES:
         off = rest[0] if rest else 0.003
