@@ -32,6 +32,7 @@ text, 32 columns, screen by screen. The 8TML parser and renderer come next
 | R | reload |
 | H | home: `https://t8wn.com/index.8tml` |
 | N / M | next / previous screen |
+| K or ? | the list of keys (the title row shows "K: keys") |
 | Q | back to the menu |
 | SPACE | stop a load (the page stays) |
 

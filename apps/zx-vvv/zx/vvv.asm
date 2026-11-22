@@ -12,7 +12,7 @@
 ;
 ; Screen: row 0 title, rows 1-22 the page, row 23 status.
 ; Keys: G go to an address, R reload, H home, N/M next/previous screen,
-; Q back to the menu. SPACE stops a load.
+; K or ? the list of keys, Q back to the menu. SPACE stops a load.
 
 	DEVICE ZXSPECTRUM48
 
@@ -50,7 +50,7 @@ main_loop:
 	call	wait_key
 	or	0x20			; letters to lower case
 	cp	'g'
-	jr	z,key_go
+	jp	z,key_go
 	cp	'r'
 	jr	z,key_reload
 	cp	'h'
@@ -59,10 +59,38 @@ main_loop:
 	jr	z,key_next
 	cp	'm'
 	jr	z,key_prev
+	cp	'k'
+	jr	z,key_help
+	cp	'?'
+	jr	z,key_help
 	cp	'q'
 	jr	nz,main_loop
 	ld	sp,(app_sp)		; back to the menu
 	ret
+
+; key_help: the keys, until any key; then the page again.
+key_help:
+	ld	a,A_PAGE
+	call	scr_cls
+	ld	hl,s_title
+	call	draw_title
+	ld	hl,help_lines		; [row][column][attribute] text 0, ...; row 0 ends
+.line:
+	ld	b,(hl)
+	inc	b
+	dec	b
+	jr	z,.wait
+	inc	hl
+	ld	c,(hl)
+	inc	hl
+	ld	a,(hl)
+	inc	hl
+	call	text_at			; HL ends after the 0
+	jr	.line
+.wait:
+	call	wait_key
+	call	show_page
+	jp	main_loop
 
 key_home:
 	ld	hl,s_home
@@ -93,11 +121,11 @@ key_prev:
 	ld	hl,(page_no)
 	ld	a,h
 	or	l
-	jr	z,main_loop
+	jp	z,main_loop
 	dec	hl
 	ld	(page_no),hl
 	call	show_page
-	jr	main_loop
+	jp	main_loop
 
 key_go:
 	ld	b,19
@@ -402,6 +430,10 @@ show_page:
 	call	scr_cls
 	ld	hl,s_title
 	call	draw_title
+	ld	bc,0*256+16		; the help hint, before the stripes
+	ld	a,A_HINT
+	ld	hl,s_keyhint
+	call	text_at
 	ld	hl,page_buf
 	ld	bc,(page_no)
 .skip:
@@ -542,6 +574,24 @@ layout:
 ; ---- Text ------------------------------------------------------------------
 
 s_title:	db	"zx-vvv",0
+s_keyhint:	db	"K: keys",0
+help_lines:
+		db	2,1,A_MSG,"Keys",0
+		db	4,1,A_ITEM,"G",0,	4,8,A_BODY,"go to an address",0
+		db	5,1,A_ITEM,"R",0,	5,8,A_BODY,"reload the page",0
+		db	6,1,A_ITEM,"H",0,	6,8,A_BODY,"home (T8wn)",0
+		db	7,1,A_ITEM,"N",0,	7,8,A_BODY,"next screen",0
+		db	8,1,A_ITEM,"M",0,	8,8,A_BODY,"previous screen",0
+		db	9,1,A_ITEM,"K or ?",0,	9,8,A_BODY,"these keys",0
+		db	10,1,A_ITEM,"Q",0,	10,8,A_BODY,"back to the menu",0
+		db	12,1,A_ITEM,"SPACE",0,	12,8,A_BODY,"stops a page loading",0
+		db	14,1,A_MSG,"Typing an address",0
+		db	16,1,A_ITEM,"CAPS+0",0,	16,8,A_BODY,"delete",0
+		db	17,1,A_ITEM,"CAPS+2",0,	17,8,A_BODY,"caps lock",0
+		db	18,1,A_ITEM,"CAPS+1",0,	18,8,A_BODY,"cancel",0
+		db	19,1,A_ITEM,"ENTER",0,	19,8,A_BODY,"go",0
+		db	23,1,A_HINT,"Any key: back to the page",0
+		db	0
 s_home:		db	"https://t8wn.com/index.8tml",0
 s_empty:	db	0
 s_accept:	db	"text/8tml",0
