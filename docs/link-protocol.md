@@ -91,7 +91,7 @@ New numbers are added here, in the same change that implements them.
 | Service | Name | Defined in |
 |---|---|---|
 | `0x00` | system: status, Wi-Fi, apps | §6.1 |
-| `0x01` | browser: 8TML navigation (zx-vvv) | `apps/zx-vvv/docs/` *(planned)* |
+| `0x01` | http: web requests for clients with their own rules (zx-vvv) | §6.4 |
 | `0x02` | files: tape library, SAVE storage | *(reserved)* |
 | `0x03` | basic: plain web fetch | §6.2 |
 | `0x04` | at: Zimodem-style AT commands | §6.3 *(planned)* |
@@ -106,10 +106,10 @@ An app that needs its own modem-side code gets a service number from the
 
 | Type | Name | Used by |
 |---|---|---|
-| 0 | body | basic `F`, browser |
+| 0 | body | basic `F`, http `G` |
 | 1 | error: data is a short ASCII message | all |
-| 2 | stylesheet | browser *(planned)* |
-| 3 | url-info: the final URL after redirects | browser *(planned)* |
+| 2 | reserved (once planned for stylesheets; never used) | |
+| 3 | url-info: the final URL and content type | http `G` |
 | 4 | netlist | system `L`, `F` |
 | 5 | wifi | system `J` |
 | 6 | app code: header bytes 4-5 = load address | system `O` |
@@ -126,7 +126,7 @@ system `O <id>`. Ids are permanent.
 | Id | App | Folder |
 |---|---|---|
 | 1 | Wi-Fi Setup | `apps/wifisetup/` |
-| 2 | 8TML Browser (zx-vvv) | `apps/zx-vvv/` *(planned)* |
+| 2 | zx-vvv (the 8TML browser) | `apps/zx-vvv/` |
 | 3 | Tape Loader (LAN) | *(planned)* |
 | 4-127 | more apps | assigned here |
 
@@ -134,7 +134,8 @@ system `O <id>`. Ids are permanent.
 
 ### 5.1 Requests (client -> modem)
 
-One block, flag `0x80`, payload at most 300 bytes:
+One block, flag `0x80`, payload at most 320 bytes (300 before firmware
+0.7):
 
 ```
 [service:1] [command:1] [arguments...]
@@ -259,6 +260,57 @@ command names and meanings follow Zimodem; the transport stays this
 protocol's blocks, since a tape link can't carry Zimodem's continuous byte
 stream.
 
+### 6.4 HTTP (0x01)
+
+A web client for programs that apply their own rules: the 8TML browser
+zx-vvv uses it. The modem only does the transport: it doesn't resolve
+relative addresses, add file names or look inside the body. Which types to
+take, what to ask for and what an address means stay the client's decisions.
+
+| Cmd | Args | Reply |
+|---|---|---|
+| `G` | `[flags] [max:2 LE] [url] 0 [accept] 0 [refuse]` | `url-info` (type 3), then `body` (type 0); or `error` |
+| `C` | `[chunk]` | *(planned)* the last body again, from chunk n |
+| `P` | | *(planned)* POST a form |
+
+**`G` arguments:**
+
+- `flags`: bit 0 = convert the body from UTF-8 to ASCII
+  (`components/translit`). Other bits 0.
+- `max`: the most body bytes the client takes; a longer body is cut (header
+  flag bit 1).
+- `url`: an absolute `http://` or `https://` address, sent as it is. The
+  client resolves relative links and leaves out any `#fragment`.
+- `accept`: the `Accept` header to send; empty = no `Accept` header.
+- `refuse`: content types to refuse, separated by spaces. One ending in `/`
+  refuses every type that starts with it (`image/`); any other must match
+  the whole type. Case and parameters (`; charset=...`) are ignored. Empty =
+  take anything.
+
+**What the modem does:** it follows redirects (301, 302, 303, 307, 308; up to
+5; a relative `Location` is resolved against the address that sent it),
+then checks the final response's content type against `refuse` **before
+reading the body**, so a refused body never goes on tape. The body comes
+back whatever the HTTP status. Timeout 30 s.
+
+**`url-info` data (type 3):** `[final url] 0 [content type]`: the address
+after redirects, then the type in lower case without parameters (empty if
+the server sent none). Its header carries the HTTP status, like the
+`body` after it.
+
+**`error` data:** `[code] [message]`, the code a byte from this table, then a
+short ASCII message:
+
+| Code | Message | When |
+|---|---|---|
+| 1 | `No Wi-Fi` | not connected |
+| 2 | `Bad address` | not an absolute http/https address, or too long |
+| 3 | `Could not connect` | DNS, TCP or TLS failed |
+| 4 | `Timed out` | no answer in 30 s |
+| 5 | `Too many redirects` | more than 5 in a row |
+| 6 | the content type | refused by `refuse` |
+| 7 | `Bad request` | arguments missing |
+
 ## 7. Compatibility rules
 
 - **Within version 1** the modem may add services, commands, response types
@@ -274,5 +326,6 @@ stream.
 - A request the modem can't decode (bad checksum) gets no reply: the user
   presses SPACE and retries.
 - `error` responses (type 1) carry a short ASCII message, meant for a
-  status line (up to 31 characters).
+  status line (up to 31 characters). A service may start the data with a
+  code byte 1-31 of its own (http does, §6.4); the message follows it.
 - Unknown services or commands get `error` "Unknown request".

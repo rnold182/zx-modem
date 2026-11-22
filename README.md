@@ -7,12 +7,12 @@ expansion port, no custom Spectrum audio code.
 
 On top of it runs a small app platform: a menu with a live status line
 (network, signal, IP, date and time), a Wi-Fi setup screen on the Spectrum
-itself, web fetches from BASIC, and an 8TML browser in the making
+itself, web fetches from BASIC, and an 8TML browser in progress
 ([zx-vvv](apps/zx-vvv/)).
 
 **Status:** the modem (Phase 1) works on a real 48K: two-way tape link, menu,
 Wi-Fi setup with saved networks, HTTP and HTTPS fetches for BASIC programs.
-The browser is next.
+The browser, zx-vvv, fetches pages; its renderer is next.
 
 ## Screenshots
 
@@ -98,22 +98,24 @@ can fetch a web page through it ([App API §5](docs/app-api.md#5-basic-programs)
 `https://` works too (the ESP32 does TLS). `RANDOMIZE USR 32768` goes back to
 the menu. A longer example: [`zx/basic/fetchdemo.asm`](zx/basic/fetchdemo.asm).
 
-## Next: zx-vvv, an 8TML browser
+## In progress: zx-vvv, an 8TML browser
 
 [8TML](https://t8wn.com/8tml/) is a tiny markup language for a retro web:
 plain ASCII pages, readable on 8-bit machines, a lot like Markdown. **zx-vvv**
-will be the official ZX Spectrum port of VVV, its reference browser, running
-on the 48K through this modem ([`apps/zx-vvv/`](apps/zx-vvv/)):
+is the official ZX Spectrum port of VVV, its reference browser, running
+on the 48K through this modem ([`apps/zx-vvv/`](apps/zx-vvv/)). Today it
+fetches pages and shows them as raw text; the renderer is next.
 
-- **The Spectrum is the browser:** it parses the page itself (headings,
+- **The Spectrum is the browser:** it resolves links and decides what to
+  fetch and refuse, and it will parse the page itself (headings,
   paragraphs, lists, quotes, preformatted text, emphasis, colour tags,
-  links) and lays it out in 32 columns with Spectrum colours, bold and
+  links) and lay it out in 32 columns with Spectrum colours, bold and
   italic fonts.
 - **Links and history:** cursor keys move between links, ENTER follows one,
   B goes back; G types an address.
-- **The modem is the network card:** HTTPS, redirects, resolving relative
-  links and checking content types, and converting UTF-8 to ASCII. It never
-  pre-renders the page.
+- **The modem stays a modem:** a general [http service](docs/link-protocol.md#64-http-0x01)
+  does HTTPS, redirects, the content-type filter the browser asks for and
+  UTF-8 to ASCII. It knows nothing about 8TML.
 - **Later:** stylesheets (`site.8ss`) and forms. The first home page:
   T8wn's own, which is served as live 8TML.
 

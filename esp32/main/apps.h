@@ -8,7 +8,7 @@
  * from the system V reply and fetches one with system O <id>. */
 typedef enum {
     APP_KIND_APP = 1,       /* loads at APP_ADDR, CALLed, returns to the menu */
-    APP_KIND_PROGRAM = 2,   /* replaces the menu (the browser; not yet supported) */
+    APP_KIND_PROGRAM = 2,   /* replaces the menu (not yet supported) */
 } app_kind_t;
 
 typedef struct {

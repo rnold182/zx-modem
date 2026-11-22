@@ -13,16 +13,18 @@ on demand (system `O <id>`):
 
 | Kind | Loads at | Runs | Example |
 |---|---|---|---|
-| 1, app | `APP_ADDR` (0xA000) | `CALL`ed by the menu; `RET` goes back to it | Wi-Fi Setup |
-| 2, program | its own address | replaces the menu; "back" reloads the menu *(planned)* | the browser, zx-vvv |
+| 1, app | `APP_ADDR` (0xA000) | `CALL`ed by the menu; `RET` goes back to it | Wi-Fi Setup, the browser zx-vvv |
+| 2, program | its own address | replaces the menu; "back" reloads the menu *(planned)* | |
 
 The menu lists the modem's apps (from the `info` reply), so adding an app
 needs no change to the menu. A kind 1 app uses the menu's routines through
 the API table, so it stays small and can be built on its own.
 
-An app can bring its own **modem-side code**: an ESP-IDF component with its
-own service number (registry: `link-protocol.md` §4). The browser does this
-for its 8TML rules, so the modem's link layer stays general.
+An app can need **modem-side code** the modem doesn't have yet: that is a
+new service with its own number (registry: `link-protocol.md` §4), kept
+general so other programs can use it too. The browser needed none of its
+own: it uses the general `http` service (§6.4) and keeps every 8TML rule on
+the Spectrum.
 
 ## 2. Memory while an app runs
 

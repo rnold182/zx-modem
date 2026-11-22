@@ -18,15 +18,12 @@
 #include "translit.h"
 #include "link.h"
 
-#define REQ_MAX       302           /* flag + 300 payload + checksum */
+#define REQ_MAX       322           /* flag + 320 payload + checksum */
 #define CHUNK_MAX    1024
 #define ECHO_GUARD_MS 300           /* receiver stays off a little after TX */
 
-enum { SVC_SYSTEM = 0x00, SVC_BASIC = 0x03 };
-enum { RESP_BODY = 0, RESP_ERROR = 1, RESP_NETLIST = 4, RESP_WIFI = 5, RESP_OVERLAY = 6, RESP_INFO = 7 };
-enum { HDR_FLAG = 0x90, DATA_FLAG = 0x91, FINAL = 0x01, TRUNCATED = 0x02 };
-
-#define FETCH_RAW_MAX (32 * 1024)          /* UTF-8 as fetched; shrinks to ASCII */
+enum { SVC_SYSTEM = 0x00, SVC_HTTP = 0x01, SVC_BASIC = 0x03 };
+enum { HDR_FLAG = 0x90, DATA_FLAG = 0x91, FINAL = 0x01 };
 
 typedef struct {
     bool is_tape;
@@ -62,9 +59,9 @@ static void send_block(uint8_t flag, const uint8_t *p, size_t n)
 }
 
 /* field45 goes into header bytes 4-5: the total length, or for an overlay
- * its load address. flags are ORed into every header (TRUNCATED). */
-static void send_response_ex(uint8_t type, const uint8_t *data, size_t len,
-                             uint16_t http, uint16_t field45, uint8_t flags)
+ * its load address. flags are ORed into every header (LINK_TRUNCATED). */
+void link_send_ex(uint8_t type, const uint8_t *data, size_t len,
+                  uint16_t http, uint16_t field45, uint8_t flags)
 {
     size_t off = 0;
     uint8_t idx = 0;
@@ -87,15 +84,26 @@ static void send_response_ex(uint8_t type, const uint8_t *data, size_t len,
     } while (off < len);
 }
 
-static void send_response(uint8_t type, const uint8_t *data, size_t len, uint16_t http)
+void link_send(uint8_t type, const uint8_t *data, size_t len, uint16_t http)
 {
-    send_response_ex(type, data, len, http, len > 0xFFFF ? 0xFFFF : (uint16_t)len, 0);
+    link_send_ex(type, data, len, http, len > 0xFFFF ? 0xFFFF : (uint16_t)len, 0);
 }
 
-static void send_error(const char *msg)
+void link_send_error(const char *msg)
 {
     ESP_LOGW(TAG, "error reply: %s", msg);
-    send_response(RESP_ERROR, (const uint8_t *)msg, strlen(msg), 0);
+    link_send(RESP_ERROR, (const uint8_t *)msg, strlen(msg), 0);
+}
+
+void link_send_error_code(uint8_t code, const char *msg)
+{
+    uint8_t d[1 + 40];
+    size_t n = strlen(msg) < sizeof d - 1 ? strlen(msg) : sizeof d - 1;
+
+    ESP_LOGW(TAG, "error reply: %u %s", code, msg);
+    d[0] = code;
+    memcpy(d + 1, msg, n);
+    link_send(RESP_ERROR, d, n + 1, 0);
 }
 
 /* V: modem status, then the app list for the menu:
@@ -145,7 +153,7 @@ static void reply_info(void)
     ESP_LOGI(TAG, "info: Wi-Fi %d, clock %s, %02d:%02d:%02d, %u app(s)", st.state,
              st.clock_valid ? "set" : "not set", st.local.tm_hour, st.local.tm_min,
              st.local.tm_sec, (unsigned)count);
-    send_response(RESP_INFO, d, len, 0);
+    link_send(RESP_INFO, d, len, 0);
 }
 
 /* L: scan (rescan = false: the last scan again, with fresh marks).
@@ -160,7 +168,7 @@ static void reply_netlist(bool rescan)
     size_t len = 0;
 
     if (n < 0) {
-        send_error("Scan failed");
+        link_send_error("Scan failed");
         return;
     }
     for (int i = 0; i < n; i++) {
@@ -172,7 +180,7 @@ static void reply_netlist(bool rescan)
         for (size_t k = 0; k < sl; k++)
             d[len++] = list[i].ssid[k] >= 32 && list[i].ssid[k] < 127 ? list[i].ssid[k] : '?';
     }
-    send_response(RESP_NETLIST, d, len, 0);
+    link_send(RESP_NETLIST, d, len, 0);
 }
 
 /* J: [index][password...] joins scan entry index; [0xFF][name][0][password...]
@@ -186,7 +194,7 @@ static void reply_join(const uint8_t *a, size_t n)
     esp_err_t err;
 
     if (n < 1) {
-        send_error("Bad request");
+        link_send_error("Bad request");
         return;
     }
     if (a[0] == 0xFF) {
@@ -200,11 +208,11 @@ static void reply_join(const uint8_t *a, size_t n)
                        : netmgr_join_index(a[0], pass, msg, sizeof msg);
     memset(pass, 0, sizeof pass);
     if (err != ESP_OK) {
-        send_error(msg);
+        link_send_error(msg);
         return;
     }
     netmgr_status(&st);
-    send_response(RESP_WIFI, st.ip, 4, 0);
+    link_send(RESP_WIFI, st.ip, 4, 0);
 }
 
 /* F: [index] forgets scan entry index's saved network; replies with the
@@ -212,7 +220,7 @@ static void reply_join(const uint8_t *a, size_t n)
 static void reply_forget(const uint8_t *a, size_t n)
 {
     if (n < 1 || netmgr_forget_index(a[0]) != ESP_OK) {
-        send_error("Not saved");
+        link_send_error("Not saved");
         return;
     }
     reply_netlist(false);
@@ -224,30 +232,31 @@ static void reply_overlay(const uint8_t *a, size_t n)
     const app_t *app = n < 1 ? NULL : apps_find(a[0]);
 
     if (!app) {
-        send_error("No such app");
+        link_send_error("No such app");
         return;
     }
     if (!app->code) {
-        send_error("Coming soon");
+        link_send_error("Coming soon");
         return;
     }
     ESP_LOGI(TAG, "app %u: %s, %u bytes", app->id, app->name,
              (unsigned)(app->code_end - app->code));
-    send_response_ex(RESP_OVERLAY, app->code, app->code_end - app->code, 0, app->addr, 0);
+    link_send_ex(RESP_OVERLAY, app->code, app->code_end - app->code, 0, app->addr, 0);
 }
 
 /* basic F: [max lo][max hi][url...] -> body (type 0) as ASCII, at most max
  * bytes, with the HTTP status; error only when there is no answer at all. */
 static void reply_basic_fetch(const uint8_t *a, size_t n)
 {
-    static uint8_t body[FETCH_RAW_MAX];
+    static const fetch_opts_t opts = { .accept = "*/*" };
     char url[300], msg[40];
     fetch_result_t res;
     net_status_t st;
-    size_t max, len;
+    size_t max, len, cap;
+    uint8_t *body = fetch_buffer(&cap);
 
     if (n < 3) {
-        send_error("No address");
+        link_send_error("No address");
         return;
     }
     max = a[0] | a[1] << 8;
@@ -256,11 +265,11 @@ static void reply_basic_fetch(const uint8_t *a, size_t n)
     url[len] = 0;
     netmgr_status(&st);
     if (st.state != NET_CONNECTED) {
-        send_error("No Wi-Fi");
+        link_send_error("No Wi-Fi");
         return;
     }
-    if (fetch_get(url, body, sizeof body, &res, msg, sizeof msg) != ESP_OK) {
-        send_error(msg);
+    if (fetch_get(url, &opts, body, cap, &res, msg, sizeof msg) != ESP_OK) {
+        link_send_error(msg);
         return;
     }
     len = translit_utf8(body, res.len);
@@ -268,15 +277,15 @@ static void reply_basic_fetch(const uint8_t *a, size_t n)
         len = max;
         res.truncated = true;
     }
-    send_response_ex(RESP_BODY, body, len, (uint16_t)res.status,
-                     len > 0xFFFF ? 0xFFFF : (uint16_t)len, res.truncated ? TRUNCATED : 0);
+    link_send_ex(RESP_BODY, body, len, (uint16_t)res.status,
+                     len > 0xFFFF ? 0xFFFF : (uint16_t)len, res.truncated ? LINK_TRUNCATED : 0);
 }
 
 static void handle_request(const uint8_t *blk, size_t len)
 {
     /* blk = flag, payload, checksum; payload = service, command, arguments */
     if (len < 4) {
-        send_error("Bad request");
+        link_send_error("Bad request");
         return;
     }
     uint8_t svc = blk[1], cmd = blk[2];
@@ -287,8 +296,10 @@ static void handle_request(const uint8_t *blk, size_t len)
              svc, cmd >= 32 && cmd < 127 ? cmd : '?', (unsigned)nargs);
     if (svc == SVC_BASIC && cmd == 'F')
         reply_basic_fetch(args, nargs);
+    else if (svc == SVC_HTTP)
+        svc_http(cmd, args, nargs);
     else if (svc != SVC_SYSTEM)
-        send_error("Unknown request");
+        link_send_error("Unknown request");
     else if (cmd == 'V')
         reply_info();
     else if (cmd == 'L')
@@ -300,7 +311,7 @@ static void handle_request(const uint8_t *blk, size_t len)
     else if (cmd == 'O')
         reply_overlay(args, nargs);
     else
-        send_error("Unknown request");
+        link_send_error("Unknown request");
 }
 
 static void play_tape(const uint8_t *tap, size_t n, const char *name)

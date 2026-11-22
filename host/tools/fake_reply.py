@@ -15,6 +15,10 @@ REPLY is one of:
                        FLAGS bit 0 saved, bit 1 connected)
   wifi:A.B.C.D         system J success
   body:STATUS:TEXT     basic F reply (a literal \n in TEXT = new line)
+  page:FILE[@URL[@STATUS]]   http G reply: url-info (the final URL, default
+                       https://t8wn.com/index.8tml; type text/8tml), then
+                       FILE as the body with STATUS (default 200)
+  httperr:CODE:MESSAGE http G error reply ([code][message])
   tap:FILE             a whole .tap (e.g. a BASIC program to LOAD)
   error:MESSAGE        error reply
 """
@@ -30,17 +34,25 @@ def block(flag, payload):
     return struct.pack('<H', len(data) + 1) + data + bytes([x])
 
 
-def response(rtype, data, field45=None, http=0):
+def response(rtype, data, field45=None, http=0, chunk=1024):
+    """One response, in chunks of up to 1024 bytes like the firmware."""
     total = len(data) if field45 is None else field45
-    hdr = struct.pack('<BBHHBBH', rtype, 1, len(data), total, 0, 1, http)
-    out = block(0x90, hdr)
-    if data:
-        out += block(0x91, data)
-    return out
+    out, off, idx = b'', 0, 0
+    while True:
+        part = data[off:off + chunk]
+        final = off + len(part) >= len(data)
+        hdr = struct.pack('<BBHHBBH', rtype, 1 if final else 0, len(part), total, idx, 1, http)
+        out += block(0x90, hdr)
+        if part:
+            out += block(0x91, part)
+        off += len(part)
+        idx += 1
+        if final:
+            return out
 
 
 # The firmware's app registry (esp32/main/apps.c): id, kind, available, name.
-APPS = [(2, 2, 0, '8TML Browser'), (3, 1, 0, 'Tape Loader (LAN)'), (1, 1, 1, 'Wi-Fi Setup')]
+APPS = [(2, 1, 1, 'zx-vvv'), (3, 1, 0, 'Tape Loader (LAN)'), (1, 1, 1, 'Wi-Fi Setup')]
 
 
 def info(ssid, wifi=2, clock=True, apps=True):
@@ -79,6 +91,16 @@ def reply(spec):
     if kind == 'body':
         status, _, text = arg.partition(':')
         return response(0, text.replace('\\n', '\n').encode('ascii'), http=int(status))
+    if kind == 'page':
+        name, url, status = (arg.split('@') + [None, None])[:3]
+        url = url or 'https://t8wn.com/index.8tml'
+        with open(name, 'rb') as f:
+            body = f.read()
+        return (response(3, url.encode('ascii') + b'\0text/8tml', http=int(status or 200)) +
+                response(0, body, http=int(status or 200)))
+    if kind == 'httperr':
+        code, _, msg = arg.partition(':')
+        return response(1, bytes([int(code)]) + msg.encode('ascii'))
     if kind == 'tap':
         with open(arg, 'rb') as f:
             return f.read()

@@ -11,9 +11,11 @@
 
 extern const uint8_t wifisetup_start[] asm("_binary_wifisetup_bin_start");
 extern const uint8_t wifisetup_end[] asm("_binary_wifisetup_bin_end");
+extern const uint8_t vvv_start[] asm("_binary_vvv_bin_start");
+extern const uint8_t vvv_end[] asm("_binary_vvv_bin_end");
 
 static const app_t s_apps[] = {
-    { 2, APP_KIND_PROGRAM, "8TML Browser",      NULL, NULL, 0 },        /* apps/zx-vvv */
+    { 2, APP_KIND_APP,     "zx-vvv",            vvv_start, vvv_end, APP_ADDR },   /* apps/zx-vvv */
     { 3, APP_KIND_APP,     "Tape Loader (LAN)", NULL, NULL, APP_ADDR },
     { 1, APP_KIND_APP,     "Wi-Fi Setup",       wifisetup_start, wifisetup_end, APP_ADDR },
 };

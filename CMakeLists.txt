@@ -23,6 +23,7 @@ enable_testing()
 add_subdirectory(components/tape)
 add_subdirectory(components/translit)
 add_subdirectory(host)
+add_subdirectory(apps/zx-vvv/host)
 
 # --- Spectrum programs (sjasmplus) ------------------------------------------
 find_program(SJASMPLUS sjasmplus
@@ -68,7 +69,37 @@ if(SJASMPLUS)
         DEPENDS ${CMAKE_SOURCE_DIR}/zx/basic/fetchdemo.asm
         COMMENT "Assembling zx/basic/fetchdemo -> fetchdemo.tap"
         VERBATIM)
-    add_custom_target(zx ALL DEPENDS ${MODEMTEST_TAP} ${ZXMENU_TAP} ${WIFISETUP_BIN} ${FETCHDEMO_TAP})
+    # zx-vvv, the browser, and its URL self-test (cases from url_cases.txt).
+    set(VVV_DIR ${CMAKE_SOURCE_DIR}/apps/zx-vvv)
+    set(VVV_BIN ${CMAKE_BINARY_DIR}/vvv.bin)
+    set(URLTEST_BIN ${CMAKE_BINARY_DIR}/urltest.bin)
+    set(URL_CASES_INC ${CMAKE_BINARY_DIR}/url_cases.inc)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_custom_command(
+        OUTPUT ${VVV_BIN}
+        COMMAND ${SJASMPLUS} --nologo --inc=${CMAKE_SOURCE_DIR}/sdk --inc=${VVV_DIR}/zx
+                ${VVV_DIR}/zx/vvv.asm
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        DEPENDS ${VVV_DIR}/zx/vvv.asm ${VVV_DIR}/zx/url.asm ${ZX_LIB_SRCS}
+        COMMENT "Assembling apps/zx-vvv -> vvv.bin"
+        VERBATIM)
+    add_custom_command(
+        OUTPUT ${URL_CASES_INC}
+        COMMAND ${Python3_EXECUTABLE} ${VVV_DIR}/host/cases2asm.py
+                ${VVV_DIR}/host/url_cases.txt ${URL_CASES_INC}
+        DEPENDS ${VVV_DIR}/host/url_cases.txt ${VVV_DIR}/host/cases2asm.py
+        COMMENT "Generating url_cases.inc"
+        VERBATIM)
+    add_custom_command(
+        OUTPUT ${URLTEST_BIN}
+        COMMAND ${SJASMPLUS} --nologo --inc=${CMAKE_SOURCE_DIR}/sdk --inc=${VVV_DIR}/zx
+                --inc=${CMAKE_BINARY_DIR} ${VVV_DIR}/zx/urltest.asm
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        DEPENDS ${VVV_DIR}/zx/urltest.asm ${VVV_DIR}/zx/url.asm ${URL_CASES_INC} ${ZX_LIB_SRCS}
+        COMMENT "Assembling apps/zx-vvv URL self-test -> urltest.bin"
+        VERBATIM)
+    add_custom_target(zx ALL DEPENDS ${MODEMTEST_TAP} ${ZXMENU_TAP} ${WIFISETUP_BIN} ${FETCHDEMO_TAP}
+                      ${VVV_BIN} ${URLTEST_BIN})
 else()
     message(STATUS "sjasmplus not found: skipping zx/ targets (install it and re-run cmake)")
 endif()

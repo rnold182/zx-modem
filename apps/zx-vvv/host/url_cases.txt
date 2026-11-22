@@ -1,0 +1,72 @@
+# url_cases.txt - zx-vvv's address rules: base | link | expected.
+# An empty base means the reader typed the address. Expected is an absolute
+# address, or SAME (the current page), NOFOLLOW (not http/https) or LONG.
+# Used by apps/zx-vvv/host/test_url.c and the Spectrum self-test (zx/urltest.asm).
+
+# RFC 3986 5.4.1 and 5.4.2, with zx-vvv's index.8tml and fragment rules
+http://a/b/c/d;p?q | g:h | NOFOLLOW
+http://a/b/c/d;p?q | g | http://a/b/c/g
+http://a/b/c/d;p?q | ./g | http://a/b/c/g
+http://a/b/c/d;p?q | g/ | http://a/b/c/g/index.8tml
+http://a/b/c/d;p?q | /g | http://a/g
+http://a/b/c/d;p?q | //g | http://g/index.8tml
+http://a/b/c/d;p?q | ?y | http://a/b/c/d;p?y
+http://a/b/c/d;p?q | g?y | http://a/b/c/g?y
+http://a/b/c/d;p?q | #s | SAME
+http://a/b/c/d;p?q | g#s | http://a/b/c/g
+http://a/b/c/d;p?q | g?y#s | http://a/b/c/g?y
+http://a/b/c/d;p?q | ;x | http://a/b/c/;x
+http://a/b/c/d;p?q | g;x | http://a/b/c/g;x
+http://a/b/c/d;p?q | g;x?y#s | http://a/b/c/g;x?y
+http://a/b/c/d;p?q | . | http://a/b/c/index.8tml
+http://a/b/c/d;p?q | ./ | http://a/b/c/index.8tml
+http://a/b/c/d;p?q | .. | http://a/b/index.8tml
+http://a/b/c/d;p?q | ../ | http://a/b/index.8tml
+http://a/b/c/d;p?q | ../g | http://a/b/g
+http://a/b/c/d;p?q | ../.. | http://a/index.8tml
+http://a/b/c/d;p?q | ../../ | http://a/index.8tml
+http://a/b/c/d;p?q | ../../g | http://a/g
+http://a/b/c/d;p?q | ../../../g | http://a/g
+http://a/b/c/d;p?q | ../../../../g | http://a/g
+http://a/b/c/d;p?q | /./g | http://a/g
+http://a/b/c/d;p?q | /../g | http://a/g
+http://a/b/c/d;p?q | g. | http://a/b/c/g.
+http://a/b/c/d;p?q | .g | http://a/b/c/.g
+http://a/b/c/d;p?q | g.. | http://a/b/c/g..
+http://a/b/c/d;p?q | ..g | http://a/b/c/..g
+http://a/b/c/d;p?q | ./../g | http://a/b/g
+http://a/b/c/d;p?q | ./g/. | http://a/b/c/g/index.8tml
+http://a/b/c/d;p?q | g/./h | http://a/b/c/g/h
+http://a/b/c/d;p?q | g/../h | http://a/b/c/h
+http://a/b/c/d;p?q | g;x=1/./y | http://a/b/c/g;x=1/y
+http://a/b/c/d;p?q | g;x=1/../y | http://a/b/c/y
+http://a/b/c/d;p?q | g?y/./x | http://a/b/c/g?y/./x
+http://a/b/c/d;p?q | g?y/../x | http://a/b/c/g?y/../x
+http://a/b/c/d;p?q | g#s/./x | http://a/b/c/g
+http://a/b/c/d;p?q | g#s/../x | http://a/b/c/g
+http://a/b/c/d;p?q | http:g | NOFOLLOW
+
+# 8TML: bare hosts and directories load index.8tml
+ | t8wn.com | http://t8wn.com/index.8tml
+ | t8wn.com/ | http://t8wn.com/index.8tml
+ | https://t8wn.com | https://t8wn.com/index.8tml
+ | HTTPS://T8wn.com/About.8TML | HTTPS://T8wn.com/About.8TML
+ | v8id.example/games/ | http://v8id.example/games/index.8tml
+ | t8wn.com/a/../b/./c.8tml | http://t8wn.com/b/c.8tml
+ | ftp://host/file | NOFOLLOW
+https://t8wn.com/index.8tml | about.8tml | https://t8wn.com/about.8tml
+https://t8wn.com/index.8tml | /visit.8tml | https://t8wn.com/visit.8tml
+https://t8wn.com/index.8tml | ../../join.8tml | https://t8wn.com/join.8tml
+https://t8wn.com/index.8tml | http://v8id.example | http://v8id.example/index.8tml
+https://t8wn.com | write.8tml | https://t8wn.com/write.8tml
+https://t8wn.com | ?page=2 | https://t8wn.com/index.8tml?page=2
+https://t8wn.com/plots/ | ?x=1 | https://t8wn.com/plots/index.8tml?x=1
+https://t8wn.com/a/b.8tml | . | https://t8wn.com/a/index.8tml
+https://t8wn.com/a/b.8tml | #top | SAME
+https://t8wn.com:8080/a/b.8tml | c.8tml | https://t8wn.com:8080/a/c.8tml
+https://t8wn.com/a/b.8tml | mailto:someone@example.com | NOFOLLOW
+https://t8wn.com/a/b.8tml | gopher://host/1 | NOFOLLOW
+https://t8wn.com/a//b.8tml | c.8tml | https://t8wn.com/a//c.8tml
+
+# too long: 260 characters
+https://t8wn.com/ | xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.8tml | LONG

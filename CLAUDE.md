@@ -9,18 +9,18 @@ Handoff document from the design chat (2026-10-26). Read this fully before writi
 A real **8TML browser running on an unmodified ZX Spectrum 48K**. An **ESP32** acts as a network coprocessor, connected only through the Spectrum's **EAR** (input) and **MIC** (output) audio sockets.
 
 - **The Spectrum is the 8TML client.** It parses the 8TML header, blocks and inline markup itself, keeps the link table, handles focus and navigation, and renders. It is **not** a dumb terminal.
-- **The ESP32 is the network card.** It does Wi-Fi, HTTP/HTTPS, redirects, URL resolution and content-type checks, converts UTF-8 to ASCII, and handles the tape-signal link in both directions. It must **not** pre-render or parse 8TML for display.
+- **The ESP32 is the network card, and stays a modem.** It does Wi-Fi, HTTP/HTTPS, redirects, the content-type filter the client asks for, converts UTF-8 to ASCII, and handles the tape-signal link in both directions. It knows nothing about 8TML: it must **not** pre-render or parse it, resolve links or apply 8TML rules (decided 2026-11-22).
 - **Fun constraint:** no hardware mods to the Spectrum. Everything goes through the tape sockets and ROM routines.
 
 **Two phases, modem first.**
 
 1. **Phase 1: the "tape-port modem".** The ESP32, its tape link and a reusable Z80 link library form a general request/response network link for the Spectrum. It must stand on its own: other programs, including BASIC programs through `USR`, can use it.
    - **Phase 1 is done** (2026-11-18, proven on the real 48K): link, menu, Wi-Fi setup, saved networks, web fetch for BASIC.
-2. **Phase 2: the 8TML browser, "zx-vvv".** The official ZX Spectrum port of VVV (name and go-ahead from the 8TML author, 2026-11-20). It lives in `apps/zx-vvv/` and is managed as its own project: it builds against `sdk/` and the protocol docs only, and its modem-side service is a component in its own folder.
+2. **Phase 2: the 8TML browser, "zx-vvv".** The official ZX Spectrum port of VVV (name and go-ahead from the 8TML author, 2026-11-20). It lives in `apps/zx-vvv/` and is managed as its own project: it builds against `sdk/` and the protocol docs only. It has **no modem-side code**: it uses the general `http` service (`0x01`).
 
 **Apps (decided 2026-11-20):** the modem is a platform. Apps live in `apps/<name>/`, build against `sdk/` (a fixed, versioned API table in the menu: `docs/app-api.md`), are registered in `esp32/main/apps.c` and listed by the menu from the `info` reply. The wire protocol is a documented standard, `docs/link-protocol.md` ("ZX Modem Link Protocol 1", with a registry of services, response types and app ids). Ideas: a Claude client app; a Zimodem-style AT service (planned, `0x04`).
 
-**Design rule:** the link layer knows nothing about 8TML. Browser-specific behaviour lives in the browser *service* (§7.3) and in the browser program.
+**Design rule:** the modem knows nothing about 8TML. Every browser rule (link resolution, `index.8tml`, fragments, which types to ask for and refuse, the reader's messages) lives in the browser program on the Spectrum; the modem offers general services (§7.3).
 
 ## 2. Working style
 
@@ -173,7 +173,7 @@ Inline markup applies in paragraphs, headings, quotes, list items, form labels a
 - **Empty link text** (`[](url)`) shows the URL.
 - **The URL is raw:** taken exactly as written, with spaces trimmed at its ends. No escapes, entities or markup apply inside it.
 - Links with schemes other than http and https are **shown but can't be followed**.
-- The Spectrum stores the URL **unresolved** and sends it as-is; the ESP32 resolves it (§7.3).
+- The Spectrum resolves the URL itself (§4.7, `apps/zx-vvv/zx/url.asm`) and sends the modem only absolute addresses.
 
 **Escapes**
 - `&lt; &gt; &amp; &quot;` give `< > & "`.
@@ -293,7 +293,9 @@ field: white   field-sel: white reverse
 - **Minimums:** at least 16 fields per form, 80 characters per text/password field and 255 per area.
 - **Without form support** (M3–M7): skip `:::form` like an unknown block, and **SHOULD tell the reader** "page has a form this client can't show".
 
-### 4.7 Addresses and HTTP (spec §9): the ESP32 does this on the Spectrum's behalf
+### 4.7 Addresses and HTTP (spec §9): addresses on the Spectrum, HTTP on the ESP32
+
+Addresses (resolution, `index.8tml`, fragments, typed `host/path`) are done by the Spectrum: `apps/zx-vvv/zx/url.asm`, modelled and host-tested as `apps/zx-vvv/host/url.c` against `url_cases.txt`. HTTP (redirects, TLS, the type filter) is the modem's `http` service, with the Accept value and the refused types sent by the browser.
 
 **URLs**
 - **Absolute forms:** `http://host[:port]/path` and `https://…`.
@@ -385,9 +387,11 @@ field: white   field-sel: white reverse
 | `4000–57FF` | Screen bitmap |
 | `5800–5AFF` | Attributes (`FLASH, BRIGHT, PAPER[3], INK[3]` per cell) |
 | `5B00–7FFF` | System variables, BASIC, stack. Contended memory, so avoid placing code here. |
-| `8000–8FFF` | Browser code (target ≤ 4 KB, can grow) |
-| `9000–9FFF` | Bold font (768 B), italic font (768 B), link table, history, small buffers |
-| `A000–FEFF` | Raw page buffer (~24 KB) |
+| `8000–9FFF` | The ZX MODEM menu and its API table (the browser borrows its screen, link and text-entry routines) |
+| `A000–` | Browser code and data (~2 KB in M2d; fonts, link table and history to come), then its buffers (not loaded from tape) |
+| `–FF57` | Raw page buffer: the rest, up to the UDGs (~20 KB in M2d) |
+
+*Decided 2026-11-22: zx-vvv is a kind 1 app (loaded at 0xA000, returns to the menu), not a program replacing the menu. If the page buffer gets too small, a kind 2 program with its own link code is still possible.*
 | top | Stack |
 
 **Contended memory explained:** in the lower 16 KB of RAM, the ULA steals CPU cycles while drawing the screen. So code placed there runs slower and less predictably.
@@ -590,15 +594,13 @@ The ESP32 detects the end of the block from the following silence, so no length 
 | `J` | `index \0 password`, or `0xFF ssid \0 password` for a hidden network | Join. The ESP32 tries to connect (2–8 s; the Spectrum waits in LD-BYTES). Reply: `wifi` (type 5: connected + IP; credentials saved to NVS only after success), or `error` with the reason ("Wrong password", "Network not found", "No IP address"). |
 | `O` | overlay id | Send a code overlay (type 6) for the caller to load at the address in the header. Id 1 = the Wi-Fi setup screen. |
 
-**Browser service (`0x01`)**
+**HTTP service (`0x01`)** (authoritative: `docs/link-protocol.md` §6.4; firmware 0.7)
 
 | Cmd | Args | Meaning |
 |---|---|---|
-| `G` | URL | Navigate. The URL is sent **exactly as written** in the page: absolute, relative, or a typed `host/path` (the ESP32 then prefixes `http://`). The **ESP32 resolves** it against the current final URL (RFC 3986, `index.8tml` for a trailing `/`, `#` dropped). Fragment-only links (`#x`) are handled locally on the Spectrum. |
-| `R` | none | Reload |
-| `C` | chunk index | Re-send from chunk n (after a load error) |
-| `S` | URL | Fetch a stylesheet (milestone 7) |
-| `P` | URL `\0` body | POST a form (milestone 8) |
+| `G` | `[flags][max:2] url \0 accept \0 refuse` | Fetch an **absolute** address (the browser resolved it). `flags` bit 0 = UTF-8 → ASCII; `max` = body limit; `accept` = the `Accept` header; `refuse` = space-separated types (`image/` = prefix). Reply: `url-info` (final URL `\0` content type) then `body`; or `error [code][text]` (1 no Wi-Fi, 2 bad address, 3 connect, 4 timeout, 5 redirects, 6 refused type, 7 bad request). Stylesheets use `G` too; reload is `G` with the current URL. |
+| `C` | chunk index | Re-send from chunk n (after a load error) *(planned, M6)* |
+| `P` | | POST a form *(planned, M8)* |
 
 ### 7.4 Response
 
@@ -607,7 +609,7 @@ A response is a sequence of `header(0x90)` + optional `data(0x91)` pairs.
 **Header layout (10 bytes)**
 ```
 0   type      0=body, 1=error (data = human-readable ASCII message; Spectrum KEEPS current page),
-              2=stylesheet body, 3=url-info (data = final absolute URL after redirects),
+              2=reserved, 3=url-info (data = final absolute URL after redirects, 0, content type),
               4=netlist, 5=wifi status, 6=overlay (code; load address in bytes 4-5 instead of total_len),
               7=info (reply to system V)
 1   flags     bit0 = final chunk, bit1 = body truncated by ESP32
@@ -622,7 +624,7 @@ A response is a sequence of `header(0x90)` + optional `data(0x91)` pairs.
 - **Content-type refused, network failure, or too many redirects:** the ESP32 sends a single `error` response. The Spectrum shows the message in the status bar and **stays on the current page**, as spec §9.2 requires.
 - **Non-2xx with a body** (e.g. 404): the ESP32 sends `url-info` and `body` as normal, with `http_status` set. The Spectrum shows "HTTP 404" in the status bar and renders the body.
   - If the body isn't an 8TML page, the spec only requires reporting the status. Show the body as plain text anyway, since it's harmless.
-- **`site.8ss` and `style:` sheets:** a non-2xx status or a refused type counts as **missing** (§8.1), so the ESP32 replies with an `error` and the Spectrum caches "missing".
+- **`site.8ss` and `style:` sheets:** a non-2xx status or a refused type counts as **missing** (§8.1): the Spectrum checks the status in `url-info` (or gets an `error` for a refused type) and caches "missing".
 - **One page buffer:** because of the stay-on-page rule, the Spectrum overwrites its page buffer only once a `url-info` arrives. `error` responses never touch it.
 
 **Typical navigation sequence:** `url-info` → `body` chunk 0 … chunk n (final).
@@ -655,12 +657,11 @@ A response is a sequence of `header(0x90)` + optional `data(0x91)` pairs.
 - `components/fetch/`:
   - `esp_http_client` with TLS via `esp_crt_bundle`.
   - **Handle redirects manually** so that 303→GET and the final URL are under our control. Maximum 5.
-  - Content-type refusal list (see §4).
-  - Drop `#fragments`.
-  - RFC 3986 relative URL resolution, as pure C that is unit-tested on the host.
+  - Content-type refusal: the list comes from the client in each request (§7.3), checked before the body is read.
+  - (Fragments and RFC 3986 resolution moved to the Spectrum, 2026-11-22.)
   - Body buffer cap of ~32 KB, setting `truncated` if exceeded.
   - HTTP version: see §4.7. Accept both status-line versions, and follow §7.4 for how statuses and refusals are reported.
-  - Send `Accept: text/8tml`. **Never list `text/html`:** t8wn.com negotiates on `Accept` and would send its HTML site instead (the site's HTTP page: send `text/8tml` or no `Accept`).
+  - The browser sends `Accept: text/8tml`. **Never list `text/html`:** t8wn.com negotiates on `Accept` and would send its HTML site instead (the site's HTTP page: send `text/8tml` or no `Accept`).
 - `components/translit/`: UTF-8 → ASCII.
   - Curly quotes → `'` / `"`, en and em dashes → `-`, `…` → `...`, NBSP → space.
   - Accented Latin letters → their base letter (including Hungarian: á é í ó ö ő ú ü ű → a e i o o o u u u).
@@ -712,7 +713,7 @@ ESP32 power: its own USB supply. Never from the Spectrum (the 48K's 7805 already
 
 - `host/` builds against `components/tape/` (shared code).
   - `tap2wav`: verify against `audio2tape` round trips.
-  - `8tml2tap`: wraps an 8TML file in protocol framing (`url-info` + body chunks) and appends it to `browser.tap`, for an **offline mode** in Fuse.
+  - `8tml2tap`: wraps an 8TML file in protocol framing (`url-info` + body chunks) for an **offline mode** in Fuse. Done as `host/tools/fake_reply.py` reply kinds `page:FILE[@URL[@STATUS]]` and `httperr:CODE:TEXT`.
     - **Fuse limitation:** it can't answer requests, so in offline mode the browser's request SAVE simply goes nowhere useful, and the next blocks on the tape act as the reply.
   - A BASIC loader generator, if sjasmplus can't emit the loader itself. Verify sjasmplus `SAVETAP` capabilities.
 - **Emulator:** Fuse (loads TAP and WAV) plus fuse-utils (`tape2wav`, `audio2tape`, `tapeconv`). ZEsarUX is an alternative.
@@ -740,7 +741,7 @@ ESP32 power: its own USB supply. Never from the Spectrum (the 48K's 7805 already
 /zx/menu/         the ZX MODEM menu (holds the API table) → zxmenu.tap, embedded in the firmware
 /zx/basic/        BASIC examples (fetchdemo)
 /apps/wifisetup/  app 1: Wi-Fi setup
-/apps/zx-vvv/     app 2: the 8TML browser — its own project: spec/ (read-only), testpages/, zx/, esp32/ (browser service component), docs/
+/apps/zx-vvv/     app 2: the 8TML browser — its own project: spec/ (read-only), testpages/, zx/ (browser, url.asm), host/ (url.c reference + cases), docs/
 /components/      portable C shared by firmware and host: tape, translit
 /esp32/           ESP-IDF firmware (main/: link, netmgr, fetch, apps registry; components/tapeio)
 /host/            host tools and tests (fake_reply.py for Fuse offline tests)
@@ -759,7 +760,7 @@ ESP32 power: its own USB supply. Never from the Spectrum (the 48K's 7805 already
 | **M2** | **Modem: link layer + system service** | `docs/link-protocol.md` written. The Z80 link library works: `modemtest` sends system `V` and prints the `info` reply. A chunked multi-block reply is reassembled correctly, and a tape error or BREAK is reported without a hang |
 | **M2b** | **Modem: Wi-Fi from the Spectrum** | Overlay 1 loads into `0xA000` and lists networks; `J` with a wrong password reports an error; a right password connects and saves to NVS; after a power cycle the ESP32 reconnects by itself; a 5-s button press forgets the credentials |
 | **M2c** | **Modem: proof of generality** | A BASIC program uses the `USR` wrapper to fetch a plain-text URL (e.g. a weather or quote page) and `PRINT`s it. **End of Phase 1.** Review before starting Phase 2 |
-| M2d | Browser service skeleton | Browser service `G` returns `url-info` + body; the Spectrum prints raw text. Fuse offline mode works via `8tml2tap` |
+| M2d | Browser skeleton | **Done 2026-11-22, proven on the real 48K.** Http service `G` returns `url-info` + body; the Spectrum resolves addresses (62/62 cases in C and in Z80) and pages raw text. Fuse offline mode via `fake_reply.py page:`/`httperr:` |
 | M3 | Renderer core | Page detection and plain-text fallback, the header (`#` comments, unclosed header, **default uppercase**, `case: mixed`), all blocks from §4.3 (incl. list renumbering, continuation lines, gap/no-gap spacing, `\` and `<br>` breaks, `<center>`), skipping of unknown and `:::form` blocks with a "has a form" notice, wrapping, preformatted cut, title and status bars, default role styles from §4.5, paging with snapshots, page-cut notice. **Text layout matches the `render -m zx --plain` golden files for the examples** (inline markup is stripped at this stage) |
 | M4 | Inline and links | Emphasis with the flanking rules, exact-name tags, the colour/flag state model, escapes and entities (incl. `&nbsp;` no-wrap), link buffering and limits, empty link text, non-http links shown but not followable, fragment-only links, bold/italic fonts, link table, focus, follow, back/history. **All golden files match, including `--links` order** |
 | M5 | Real network | HTTP/HTTPS, redirects, refusal of HTML and other blocked types, URL resolution, transliteration, error pages, URL entry screen |
