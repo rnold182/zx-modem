@@ -11,7 +11,9 @@
 ;
 ; Screen: row 0 title, rows 1-22 the page, row 23 status.
 ; Keys: G go to an address, R reload, H home, N/M next/previous screen,
-; K or ? the list of keys, Q back to the menu. SPACE stops a load.
+; 6/7 (or the cursor keys) next/previous link, ENTER follow it, B back,
+; L the list of links, ? help (the keys, how full the page buffer is),
+; Q back to the menu. SPACE stops a load.
 
 	DEVICE ZXSPECTRUM48
 
@@ -29,6 +31,13 @@ INPUT_MAX	equ	63		; edit_line's limit
 RXBUF_SIZE	equ	400		; url-info: final address, 0, type; or an error
 HTTP_ASCII	equ	0x01		; http G flag: UTF-8 -> ASCII
 
+LIST_TOP	equ	2		; the link list: rows 2-21
+LIST_ROWS	equ	20
+HIST_SIZE	equ	512		; history: about 10 addresses
+NAV_NEW		equ	0		; how a page is being fetched
+NAV_RELOAD	equ	1
+NAV_BACK	equ	2
+
 RESP_ERROR	equ	1
 RESP_URLINFO	equ	3
 
@@ -42,12 +51,32 @@ vvv:
 	ld	hl,0
 	ld	(page_len),hl
 	ld	(http_status),hl
+	ld	hl,hist_buf
+	ld	(hist_top),hl
+	ld	hl,0xFFFF
+	ld	(focus),hl
 	call	show_page
 	ld	hl,s_home
 	call	go_typed
 main_loop:
+	xor	a
+	ld	(nav),a
 	call	wait_key
+	cp	K_DOWN
+	jp	z,key_down
+	cp	'6'
+	jp	z,key_down
+	cp	K_UP
+	jp	z,key_up
+	cp	'7'
+	jp	z,key_up
+	cp	K_ENTER
+	jp	z,key_enter
 	or	0x20			; letters to lower case
+	cp	'b'
+	jp	z,key_back
+	cp	'l'
+	jp	z,key_list
 	cp	'g'
 	jp	z,key_go
 	cp	'r'
@@ -58,8 +87,6 @@ main_loop:
 	jr	z,key_next
 	cp	'm'
 	jp	z,key_prev
-	cp	'k'
-	jr	z,key_help
 	cp	'?'
 	jr	z,key_help
 	cp	'q'
@@ -116,6 +143,8 @@ key_reload:
 	ld	a,(hl)
 	or	a
 	jr	z,key_home		; nothing loaded yet
+	ld	a,NAV_RELOAD
+	ld	(nav),a
 	call	go_typed
 	jp	main_loop
 
@@ -128,6 +157,7 @@ key_next:
 	jp	nc,main_loop		; the last screen
 	add	hl,de
 	ld	(page_no),hl
+	call	focus_none
 	call	show_page
 	jp	main_loop
 
@@ -138,6 +168,7 @@ key_prev:
 	jp	z,main_loop
 	dec	hl
 	ld	(page_no),hl
+	call	focus_none
 	call	show_page
 	jp	main_loop
 
@@ -216,16 +247,17 @@ fetch_url:
 	ld	ix,rxbuf
 	ld	de,RXBUF_SIZE-1
 	call	link_receive
-	jr	nc,link_failed
+	jp	nc,link_failed
 	ld	hl,rxbuf		; 0 after the data
 	add	hl,bc
 	ld	(hl),0
 	cp	RESP_ERROR
-	jr	z,modem_error
+	jp	z,modem_error
 	cp	RESP_URLINFO
 	ld	hl,s_badreply
 	jp	nz,status_error
 	; the new page: its final address, status, then the body
+	call	hist_on_success
 	ld	hl,rxbuf
 	ld	de,cur_url
 	ld	b,URL_MAX
@@ -254,6 +286,16 @@ fetch_url:
 	and	2			; cut by the modem
 	ld	(page_cut),a
 	call	new_page
+	ld	a,(nav)			; back: to the screen we were on
+	cp	NAV_BACK
+	jp	nz,show_page
+	ld	hl,(back_screen)
+	ld	de,(screens)
+	or	a
+	sbc	hl,de
+	jp	nc,show_page
+	add	hl,de
+	ld	(page_no),hl
 	jp	show_page
 .body_failed:
 	push	af
@@ -359,7 +401,14 @@ show_status:
 	ld	hl,s_newer
 	ld	a,(newer)
 	or	a
+	jr	nz,.note
+	ld	a,(focus+1)		; a link is focused: its address
+	inc	a
 	jr	z,.addr
+	ld	hl,found_url
+	ld	b,STATUS_TEXT
+	call	print_max
+	jr	.count
 .note:
 	call	scr_print
 	jr	.count
@@ -456,6 +505,7 @@ new_page:
 	ld	(page_end),hl
 	ld	hl,0
 	ld	(page_no),hl
+	call	focus_none
 	call	parse_header
 	jp	render_measure
 
@@ -472,6 +522,15 @@ show_page:
 	call	text_at
 	ld	hl,(page_no)
 	call	render_draw
+	xor	a
+	ld	(sel_count),a
+	ld	hl,(focus)		; the focused link, if it's on this screen
+	call	run_has
+	jp	nc,.nofocus
+	call	sel_paint
+	jp	show_status
+.nofocus:
+	call	focus_none
 	jp	show_status
 
 ; make_title: title_disp = the page's title (in its case, up to 15
@@ -533,13 +592,641 @@ print_dec16:
 	ld	b,1
 	jp	scr_putc		; keeps BC DE HL
 
+; ---- Links ------------------------------------------------------------------
+
+; focus_none: no link focused.
+focus_none:
+	ld	hl,0xFFFF
+	ld	(focus),hl
+	ret
+
+; key_down / key_up: the next / previous link on the screen; past the
+; last / first, the next / previous screen.
+key_down:
+	call	focus_next
+	jr	c,.set
+	ld	hl,(page_no)
+	inc	hl
+	ld	de,(screens)
+	or	a
+	sbc	hl,de
+	jp	nc,main_loop		; the last screen
+	add	hl,de
+	ld	(page_no),hl
+	call	focus_none
+	call	show_page
+	call	focus_next
+	jp	nc,main_loop
+.set:
+	call	focus_set
+	jp	main_loop
+
+key_up:
+	call	focus_prev
+	jr	c,.set
+	ld	hl,(page_no)
+	ld	a,h
+	or	l
+	jp	z,main_loop
+	dec	hl
+	ld	(page_no),hl
+	call	focus_none
+	call	show_page
+	call	focus_prev
+	jp	nc,main_loop
+.set:
+	call	focus_set
+	jp	main_loop
+
+; key_enter: follow the focused link.
+key_enter:
+	ld	a,(focus+1)
+	inc	a
+	jp	z,main_loop		; none
+	ld	hl,cur_url
+	ld	de,found_url
+	call	go_resolve
+	jp	main_loop
+
+; focus_set: focus link HL: highlight it, find its address, show it.
+focus_set:
+	push	hl
+	call	sel_restore
+	pop	hl
+	ld	(focus),hl
+	call	sel_paint
+	ld	hl,(focus)
+	ld	(find_no),hl
+	ld	hl,(page_no)
+	call	render_find
+	jp	c,show_status
+	xor	a
+	ld	(found_url),a
+	jp	show_status
+
+; focus_next: carry and HL = the first link on the screen after the focus
+; (the first of all if none is focused).
+focus_next:
+	ld	hl,0xFFFF		; the best so far
+	ld	(fbest),hl
+	call	runs_start
+.l:
+	jr	z,focus_result
+	push	bc
+	push	hl
+	ld	e,(hl)
+	inc	hl
+	ld	d,(hl)			; DE = this run's link
+	ld	hl,(focus)
+	ld	a,h
+	and	l
+	inc	a
+	jr	z,.any			; nothing focused
+	or	a
+	sbc	hl,de
+	jr	nc,.skip		; not after the focus
+.any:
+	ld	hl,(fbest)
+	or	a
+	sbc	hl,de
+	jr	c,.skip
+	ld	(fbest),de
+.skip:
+	pop	hl
+	pop	bc
+	call	runs_next
+	jr	.l
+
+; focus_result: carry and HL = fbest, unless it is none.
+focus_result:
+	ld	hl,(fbest)
+	ld	a,h
+	and	l
+	inc	a			; Z if none
+	scf
+	ret	nz
+	or	a
+	ret
+
+; focus_prev: carry and HL = the last link on the screen before the focus
+; (the last of all if none is focused).
+focus_prev:
+	ld	hl,0xFFFF
+	ld	(fbest),hl
+	call	runs_start
+.l:
+	jr	z,focus_result
+	push	bc
+	push	hl
+	ld	e,(hl)
+	inc	hl
+	ld	d,(hl)
+	ld	hl,(focus)
+	ld	a,h
+	and	l
+	inc	a
+	jr	z,.any
+	or	a
+	sbc	hl,de
+	jr	z,.skip
+	jr	c,.skip			; not before the focus
+.any:
+	ld	hl,(fbest)		; none yet, or this one is later
+	ld	a,h
+	and	l
+	inc	a
+	jr	z,.take
+	or	a
+	sbc	hl,de
+	jr	nc,.skip
+.take:
+	ld	(fbest),de
+.skip:
+	pop	hl
+	pop	bc
+	call	runs_next
+	jr	.l
+
+; runs_start: HL = the first link run, B = how many; Z if none.
+runs_start:
+	ld	hl,runs
+	ld	a,(run_n)
+	ld	b,a
+	or	a
+	ret
+; runs_next: the next run; Z when none are left.
+runs_next:
+	ld	de,5
+	add	hl,de
+	dec	b
+	ret
+
+; run_has: carry if link HL has a run on this screen.
+run_has:
+	ex	de,hl
+	call	runs_start
+.l:
+	jr	nz,.go
+	or	a			; none: no carry
+	ret
+.go:
+	ld	a,(hl)
+	cp	e
+	jr	nz,.n
+	inc	hl
+	ld	a,(hl)
+	dec	hl
+	cp	d
+	scf
+	ret	z
+.n:
+	call	runs_next
+	jr	.l
+
+; sel_paint: show the focused link selected (reversed, the reference's
+; link-sel), saving its cells' attributes for sel_restore.
+sel_paint:
+	xor	a
+	ld	(sel_count),a
+	ld	de,sel_save
+	ld	(sel_ptr),de
+	ld	a,1
+	jr	sel_walk
+; sel_restore: the focused link's attributes as they were.
+sel_restore:
+	ld	a,(sel_count)
+	or	a
+	ret	z
+	ld	(sel_left),a
+	ld	de,sel_save
+	ld	(sel_ptr),de
+	xor	a
+	ld	(sel_count),a
+	; fall through (A = 0: restore)
+sel_walk:
+	ld	(sel_mode),a
+	call	runs_start
+.l:
+	ret	z
+	push	bc
+	push	hl
+	ld	e,(hl)			; this run's link = the focus?
+	inc	hl
+	ld	d,(hl)
+	inc	hl
+	push	hl
+	ld	hl,(focus)
+	or	a
+	sbc	hl,de
+	pop	hl
+	jr	nz,.skip
+	ld	a,(hl)			; row, column, length
+	inc	hl
+	ld	c,(hl)
+	inc	hl
+	ld	b,(hl)
+	ld	l,a			; HL = 0x5800 + row * 32 + column
+	ld	h,0
+	add	hl,hl
+	add	hl,hl
+	add	hl,hl
+	add	hl,hl
+	add	hl,hl
+	ld	a,c
+	or	l
+	ld	l,a
+	ld	a,h
+	or	0x58
+	ld	h,a
+.cell:
+	ld	de,(sel_ptr)
+	ld	a,(sel_mode)
+	or	a
+	jr	z,.back
+	ld	a,(sel_count)
+	inc	a
+	jr	z,.next			; 255 saved: the rest stays
+	ld	(sel_count),a
+	ld	a,(hl)
+	ld	(de),a
+	and	0x38			; paper black: reverse it (ink on black ->
+	jr	nz,.next		; black on ink), else it is reversed already
+	ld	a,(hl)
+	and	0x47
+	ld	c,a
+	and	0x07
+	add	a,a
+	add	a,a
+	add	a,a
+	ld	e,a
+	ld	a,c
+	and	0x40
+	or	e
+	ld	(hl),a
+	jr	.next
+.back:
+	ld	a,(sel_left)		; only as many as were saved
+	or	a
+	jr	z,.next
+	dec	a
+	ld	(sel_left),a
+	ld	a,(de)
+	ld	(hl),a
+.next:
+	ld	de,(sel_ptr)
+	inc	de
+	ld	(sel_ptr),de
+	inc	hl
+	djnz	.cell
+.skip:
+	pop	hl
+	pop	bc
+	call	runs_next
+	jr	.l
+
+; link_hook: the renderer calls this for every link while finding
+; (MODE_FIND: link find_no's address -> found_url) or listing (MODE_LIST:
+; the list's rows). lk_cur = the link's number, url_buf = its address.
+link_hook:
+	ld	a,(mode)
+	cp	MODE_FIND
+	jr	nz,.list
+	ld	hl,(lk_cur)
+	ld	de,(find_no)
+	or	a
+	sbc	hl,de
+	ret	nz
+	ld	hl,url_buf
+	ld	de,found_url
+	ld	bc,256
+	ldir
+	ld	a,1
+	ld	(found),a
+	jp	render_abort
+.list:
+	ld	hl,(lk_cur)
+	ld	de,(list_first)
+	or	a
+	sbc	hl,de
+	ret	c			; before the list
+	ld	a,h
+	or	a
+	jp	nz,render_abort
+	ld	a,l
+	cp	LIST_ROWS
+	jp	nc,render_abort		; after it
+	add	a,LIST_TOP
+	ld	b,a
+	ld	a,A_BODY
+	call	scr_clear_row
+	ld	hl,(lk_cur)
+	inc	hl
+	call	print_num3
+	ld	a,' '
+	call	scr_putc
+	ld	hl,url_buf
+	ld	b,28
+	jp	print_max
+
+; print_num3: HL right-aligned in 3 columns (more if it needs them).
+print_num3:
+	ld	de,100
+	or	a
+	sbc	hl,de
+	add	hl,de
+	jr	nc,.n
+	ld	a,' '
+	call	scr_putc
+	ld	de,10
+	or	a
+	sbc	hl,de
+	add	hl,de
+	jr	nc,.n
+	ld	a,' '
+	call	scr_putc
+.n:
+	jp	print_dec16
+
+; key_list: the page's links, 20 at a time; 6/7 move, ENTER follows,
+; N/M more, L or Q back to the page.
+key_list:
+	ld	hl,(lk_total)
+	ld	a,h
+	or	l
+	ld	hl,s_nolinks
+	jp	z,.none
+	ld	hl,(focus)		; start at the focused link, or the first
+	ld	a,h
+	and	l
+	inc	a
+	jr	nz,.sel
+	ld	hl,0
+.sel:
+	ld	(list_sel),hl
+.page:
+	ld	hl,(list_sel)		; the page of 20 with list_sel on it
+	ld	b,0
+.div:
+	ld	de,LIST_ROWS
+	or	a
+	sbc	hl,de
+	jr	c,.divd
+	inc	b
+	jr	.div
+.divd:
+	ld	l,b
+	ld	h,0
+	add	hl,hl
+	add	hl,hl
+	ld	d,h
+	ld	e,l
+	add	hl,hl
+	add	hl,hl
+	add	hl,de			; * 20
+	ld	(list_first),hl
+	ld	a,A_PAGE
+	call	scr_cls
+	ld	hl,s_links
+	call	draw_title
+	ld	bc,STATUS_ROW*256+0
+	ld	a,A_HINT
+	ld	hl,s_listkeys
+	call	text_at
+	call	render_list
+.mark:
+	call	.paint
+	call	wait_key
+	cp	K_DOWN
+	jr	z,.down
+	cp	'6'
+	jr	z,.down
+	cp	K_UP
+	jr	z,.up
+	cp	'7'
+	jr	z,.up
+	cp	K_ENTER
+	jr	z,.go
+	or	0x20
+	cp	'n'
+	jr	z,.more
+	cp	'm'
+	jr	z,.less
+	cp	'l'
+	jr	z,.back
+	cp	'q'
+	jr	nz,.mark
+.back:
+	call	show_page
+	jp	main_loop
+.down:
+	ld	hl,(list_sel)
+	inc	hl
+	ld	de,(lk_total)
+	or	a
+	sbc	hl,de
+	jr	nc,.mark
+	add	hl,de
+	jr	.to
+.up:
+	ld	hl,(list_sel)
+	ld	a,h
+	or	l
+	jr	z,.mark
+	dec	hl
+.to:
+	push	hl
+	ld	a,A_BODY		; the old row back to normal
+	call	.attr
+	pop	hl
+	ld	(list_sel),hl
+	ld	de,(list_first)		; still on this page of the list?
+	or	a
+	sbc	hl,de
+	jp	c,.page
+	ld	de,LIST_ROWS
+	or	a
+	sbc	hl,de
+	jp	nc,.page
+	jr	.mark
+.more:
+	ld	hl,(list_first)
+	ld	de,LIST_ROWS
+	add	hl,de
+	ex	de,hl
+	ld	hl,(lk_total)
+	or	a
+	sbc	hl,de
+	jr	z,.mark
+	jr	c,.mark
+	ld	(list_sel),de
+	jp	.page
+.less:
+	ld	hl,(list_first)
+	ld	de,LIST_ROWS
+	or	a
+	sbc	hl,de
+	jp	c,.mark
+	ld	(list_sel),hl
+	jp	.page
+.go:
+	ld	hl,(list_sel)
+	ld	(find_no),hl
+	ld	hl,0
+	call	render_find
+	jp	nc,.back
+	call	show_page		; the page behind, then follow
+	ld	hl,cur_url
+	ld	de,found_url
+	call	go_resolve
+	jp	main_loop
+.paint:
+	ld	a,A_SEL
+.attr:					; the selected row in colour A
+	push	af
+	ld	hl,(list_sel)
+	ld	de,(list_first)
+	or	a
+	sbc	hl,de
+	ld	a,l
+	add	a,LIST_TOP
+	ld	b,a
+	pop	af
+	ld	c,32
+	ld	e,0
+	jp	scr_paint
+.none:
+	call	status_error
+	jp	main_loop
+
+; ---- History ----------------------------------------------------------------
+; hist_buf holds entries [address][0][screen:2][entry length], newest last;
+; when it is full the oldest go.
+
+; hist_on_success: a new page is arriving: remember the one we leave (not
+; for a reload; going back drops the entry we went back to).
+hist_on_success:
+	ld	a,(nav)
+	cp	NAV_RELOAD
+	ret	z
+	cp	NAV_BACK
+	jp	z,hist_drop
+	ld	a,(cur_url)
+	or	a
+	ret	z			; nothing shown yet
+	ld	hl,cur_url
+	call	u_strlen		; BC = length
+	ld	hl,4
+	add	hl,bc
+	ld	(hist_len),hl
+.room:
+	ld	hl,(hist_top)
+	ld	de,(hist_len)
+	add	hl,de
+	ld	de,hist_buf+HIST_SIZE
+	or	a
+	sbc	hl,de
+	jr	c,.fits
+	jr	z,.fits
+	ld	hl,hist_buf		; drop the oldest
+	call	u_strlen
+	ld	hl,4
+	add	hl,bc
+	ex	de,hl			; DE = its length
+	ld	hl,(hist_top)
+	or	a
+	sbc	hl,de
+	ld	(hist_top),hl
+	ld	bc,hist_buf
+	or	a
+	sbc	hl,bc			; what is left after it
+	ld	b,h
+	ld	c,l
+	ld	hl,hist_buf
+	add	hl,de
+	ld	de,hist_buf
+	ld	a,b
+	or	c
+	jr	z,.room
+	ldir
+	jr	.room
+.fits:
+	ld	de,(hist_top)
+	ld	hl,cur_url
+	call	u_strcpy		; DE on the 0
+	inc	de
+	ld	hl,(page_no)
+	ex	de,hl
+	ld	(hl),e
+	inc	hl
+	ld	(hl),d
+	inc	hl
+	ld	a,(hist_len)
+	ld	(hl),a
+	inc	hl
+	ld	(hist_top),hl
+	ret
+
+; hist_peek: carry and HL = the newest address, back_screen = its screen.
+hist_peek:
+	ld	hl,(hist_top)
+	ld	de,hist_buf
+	or	a
+	sbc	hl,de
+	ret	z			; empty (no carry)
+	ld	hl,(hist_top)
+	dec	hl
+	ld	e,(hl)
+	dec	hl
+	ld	a,(hl)
+	dec	hl
+	ld	l,(hl)			; (screen low) ...
+	ld	h,a
+	ld	(back_screen),hl
+	ld	hl,(hist_top)
+	ld	d,0
+	or	a
+	sbc	hl,de			; the entry's start
+	scf
+	ret
+
+; hist_drop: forget the newest entry.
+hist_drop:
+	ld	hl,(hist_top)
+	ld	de,hist_buf
+	or	a
+	sbc	hl,de
+	ret	z
+	ld	hl,(hist_top)
+	dec	hl
+	ld	e,(hl)
+	ld	d,0
+	inc	hl
+	or	a
+	sbc	hl,de
+	ld	(hist_top),hl
+	ret
+
+; key_back: the previous page, at the screen we were on.
+key_back:
+	call	hist_peek
+	ld	hl,s_noback
+	jr	nc,.none
+	ld	a,NAV_BACK
+	ld	(nav),a
+	call	hist_peek
+	call	go_typed
+	jp	main_loop
+.none:
+	call	status_error
+	jp	main_loop
+
 	include	"render.asm"
 	include	"url.asm"
 
 ; ---- Text ------------------------------------------------------------------
 
 s_title:	db	"zx-vvv",0
-s_keyhint:	db	"K: help",0
+s_keyhint:	db	"?: help",0
 s_pagesize:	db	"Page: ",0
 s_bytes:	db	" bytes, ",0
 s_free:		db	" free",0
@@ -547,21 +1234,26 @@ s_form:		db	"Form not shown (yet)",0
 s_newer:	db	"Newer 8TML version",0
 help_lines:
 		db	2,1,A_MSG,"Keys",0
-		db	4,1,A_ITEM,"G",0,	4,8,A_BODY,"go to an address",0
-		db	5,1,A_ITEM,"R",0,	5,8,A_BODY,"reload the page",0
-		db	6,1,A_ITEM,"H",0,	6,8,A_BODY,"home (T8wn)",0
-		db	7,1,A_ITEM,"N",0,	7,8,A_BODY,"next screen",0
-		db	8,1,A_ITEM,"M",0,	8,8,A_BODY,"previous screen",0
-		db	9,1,A_ITEM,"K or ?",0,	9,8,A_BODY,"this help",0
-		db	10,1,A_ITEM,"Q",0,	10,8,A_BODY,"back to the menu",0
-		db	12,1,A_ITEM,"SPACE",0,	12,8,A_BODY,"stops a page loading",0
-		db	14,1,A_MSG,"Typing an address",0
-		db	16,1,A_ITEM,"CAPS+0",0,	16,8,A_BODY,"delete",0
-		db	17,1,A_ITEM,"CAPS+2",0,	17,8,A_BODY,"caps lock",0
-		db	18,1,A_ITEM,"CAPS+1",0,	18,8,A_BODY,"cancel",0
-		db	19,1,A_ITEM,"ENTER",0,	19,8,A_BODY,"go",0
+		db	3,1,A_ITEM,"G",0,	3,8,A_BODY,"go to an address",0
+		db	4,1,A_ITEM,"R",0,	4,8,A_BODY,"reload the page",0
+		db	5,1,A_ITEM,"H",0,	5,8,A_BODY,"home (T8wn)",0
+		db	6,1,A_ITEM,"N  M",0,	6,8,A_BODY,"next, previous screen",0
+		db	7,1,A_ITEM,"6  7",0,	7,8,A_BODY,"next, previous link",0
+		db	8,1,A_ITEM,"ENTER",0,	8,8,A_BODY,"follow the link",0
+		db	9,1,A_ITEM,"B",0,	9,8,A_BODY,"back",0
+		db	10,1,A_ITEM,"L",0,	10,8,A_BODY,"list the links",0
+		db	11,1,A_ITEM,"?",0,	11,8,A_BODY,"this help",0
+		db	12,1,A_ITEM,"Q",0,	12,8,A_BODY,"back to the menu",0
+		db	13,1,A_ITEM,"SPACE",0,	13,8,A_BODY,"stops a page loading",0
+		db	15,1,A_MSG,"Typing an address",0
+		db	16,1,A_BODY,"CAPS+0 delete  CAPS+2 caps lock",0
+		db	17,1,A_BODY,"CAPS+1 cancel  ENTER go",0
 		db	23,1,A_HINT,"Any key: back to the page",0
 		db	0
+s_links:	db	"Links",0
+s_listkeys:	db	"6/7 ENTER go  N/M more  L back",0
+s_nolinks:	db	"No links on this page",0
+s_noback:	db	"No page to go back to",0
 s_home:		db	"https://t8wn.com/index.8tml",0
 s_empty:	db	0
 s_accept:	db	"text/8tml",0
@@ -592,6 +1284,19 @@ app_sp:		dw	0
 page_len:	dw	0
 page_end:	dw	page_buf
 page_no:	dw	0
+focus:		dw	0xFFFF			; the focused link's number (0xFFFF: none)
+fbest:		dw	0
+find_no:	dw	0
+list_first:	dw	0
+list_sel:	dw	0
+nav:		db	0			; NAV_NEW, NAV_RELOAD, NAV_BACK
+back_screen:	dw	0
+hist_top:	dw	0
+hist_len:	dw	0
+sel_count:	db	0
+sel_left:	db	0
+sel_mode:	db	0
+sel_ptr:	dw	0
 page_cut:	db	0
 http_status:	dw	0
 
@@ -611,10 +1316,14 @@ url_buf		equ	url_tmp			; a link's address (256)
 label_buf	equ	url_out			; a link's text (256)
 	ASSERT	RXBUF_SIZE <= WIN_SIZE+1 && URL_TMP_SIZE >= 256 && URL_OUT_SIZE >= 256
 tagbuf:		ds	16
-cur_cells:	ds	2*WIDTH
-pend_cells:	ds	2*WIDTH
-word_cells:	ds	2*(WIDTH+2)
-rowbuf:		ds	2*WIDTH
+cur_cells:	ds	CELL*WIDTH
+pend_cells:	ds	CELL*WIDTH
+word_cells:	ds	CELL*(WIDTH+2)
+rowbuf:		ds	CELL*WIDTH
+runs:		ds	MAX_RUNS*5		; the screen's link pieces
+sel_save:	ds	256			; the focused link's attributes
+found_url:	ds	256			; the focused link's address
+hist_buf:	ds	HIST_SIZE
 title_buf:	ds	32
 title_disp:	ds	16
 snaps:		ds	MAX_SCREENS*SNAP_SIZE

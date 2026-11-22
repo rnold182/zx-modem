@@ -4,20 +4,21 @@ The official ZX Spectrum port of VVV, the reference 8TML client (name and go-ahe
 from the 8TML author). It runs on an unmodified 48K and reaches the web
 through the ZX MODEM.
 
-**Status:** M3. It fetches pages through the modem and lays them out
+**Status:** M4. It fetches pages through the modem and lays them out
 itself, line for line like the 8TML reference tool: headings, paragraphs,
 lists (renumbered), quotes, preformatted text, rules, centring, line
-breaks, upper case unless the page says `case: mixed`. Inline markup is
-handled for the text (tags vanish, entities and escapes decode, links show
-their text). Next (M4): colours and bold/italic fonts for inline markup,
-following links, Back.
+breaks, upper case unless the page says `case: mixed`. Inline markup shows
+in colour (Spectrum colours for the 8TML ones), with bold and italic
+glyphs made from the ROM font; links can be focused, followed and listed,
+and B goes back to the screen you were on. Next: robustness (M6),
+stylesheets (M7), forms (M8).
 
 ## How it fits the modem
 
 - **App 2, kind 1:** the menu loads it at 0xA000 and `CALL`s it; Q goes
   back to the menu. It borrows the menu's screen, link and text-entry
-  routines through the API table (`docs/app-api.md`), so it's about 6 KB
-  on tape and leaves ~15 KB for the page.
+  routines through the API table (`docs/app-api.md`), so it's about 8 KB
+  on tape and leaves ~11.6 KB for the page.
 - **The Spectrum is the browser.** Everything 8TML-specific happens here:
   resolving links (`zx/url.asm`, RFC 3986), `index.8tml` for directories,
   dropping `#fragments`, asking for `text/8tml`, refusing `text/html` and
@@ -36,60 +37,91 @@ following links, Back.
 | R | reload |
 | H | home: `https://t8wn.com/index.8tml` |
 | N / M | next / previous screen |
-| K or ? | help: the keys, and how full the page buffer is (the title row shows "K: help") |
+| 6 / 7 (or the cursor keys) | next / previous link; past the last one, the next screen |
+| ENTER | follow the focused link (`#top`-style links go to the top of the page) |
+| B | back: the previous page, at the screen you were on (about 10 pages) |
+| L | the page's links, numbered: 6/7 move, ENTER follows, N/M more, L back |
+| ? | help: the keys, and how full the page buffer is (the title row shows "?: help"; SYMBOL SHIFT + C) |
 | Q | back to the menu |
 | SPACE | stop a load (the page stays) |
 
-Row 0 shows the page's title. Row 23 shows the address, or "Server says
-HTTP 404", "Page cut: too long", "Form not shown (yet)", "Newer 8TML
-version", or an error; the screen counter is on the right. An error (no
-Wi-Fi, a refused type...) never replaces the page on screen, as the 8TML
-spec asks. Forms are skipped until M8.
+Row 0 shows the page's title. Row 23 shows the address (or the focused
+link's), or "Server says HTTP 404", "Page cut: too long", "Form not shown
+(yet)", "Newer 8TML version", or an error; the screen counter is on the
+right. An error (no Wi-Fi, a refused type...) never replaces the page on
+screen, as the 8TML spec asks. Forms are skipped until M8.
+
+**Colours** follow the reference's defaults through a hand-tuned ZX table
+(`CLAUDE.md` §6.6): text white, `#` headings reversed, emphasis and strong
+bright white, links bright blue, preformatted text bright green. A focused
+link is reversed (the spec's `link-sel`).
 
 ## How the renderer works
 
 The page stays raw in the page buffer. After it loads, one pass lays it out
 without drawing and keeps a bookmark at the start of every screen (up to
-64): the block that screen starts in, the parser's state there, and how
-many of the block's rows came before. N and M redraw from a bookmark.
-Text blocks are read as one joined text, as in the reference parser, with
-enough lookahead for the longest construct (a link: 80 characters of text,
-255 of address). Details: the comments in `zx/render.asm`.
+64): the block that screen starts in, the parser's state there (including
+how many links came before), and how many of the block's rows came before.
+N and M redraw from a bookmark. Text blocks are read as one joined text, as
+in the reference parser, with enough lookahead for the longest construct (a
+link: 80 characters of text, 255 of address).
+
+Each cell carries its character (bit 7: italic), its attribute (bit 7, the
+FLASH bit: bold) and a link id. Characters are drawn straight from the ROM
+font: bold ORs every glyph row with itself shifted one pixel, italic shifts
+the top four rows. No font tables in memory.
+
+Links take no memory for their addresses: the screen keeps where each
+link's characters are, and when one is focused, followed or listed the
+renderer reads the page again from that screen's bookmark until it reaches
+that link. Details: the comments in `zx/render.asm`.
 
 ## Folder
 
 | Path | What |
 |---|---|
-| `zx/vvv.asm` | the browser (→ `vvv.bin`, embedded in the firmware as app 2) |
-| `zx/render.asm` | the 8TML renderer: header, blocks, inline text, wrap, screen bookmarks |
+| `zx/vvv.asm` | the browser (→ `vvv.bin`, embedded in the firmware as app 2): keys, focus, history, the link list |
+| `zx/render.asm` | the 8TML renderer: header, blocks, inline markup, colours and fonts, wrap, screen bookmarks, link runs |
 | `zx/url.asm` | address rules in Z80 |
 | `zx/urltest.asm` | the Spectrum self-test of `url.asm` (not shipped) |
 | `host/url.c` | the C reference of the address rules, with the rules spelled out |
 | `host/url_cases.txt` | the test cases both run: 62 so far, including RFC 3986 §5.4 |
 | `host/cases2asm.py` | turns the cases into `url_cases.inc` for the self-test |
-| `host/golden.py` | writes the golden files from the reference tool |
-| `host/fusetest.ps1` | the renderer test in Fuse: every screen of every test page against its golden file |
-| `testpages/` | test pages, their golden files (`.zx.txt`) and hand-written expectations (`.expect.txt`) |
+| `host/golden.py` | writes the layout golden files from the reference tool |
+| `host/golden_style.py` | writes the expected colours, fonts, focused link and link list |
+| `host/fusetest.ps1` | the renderer test in Fuse: every screen and every cell of every test page |
+| `host/navtest.ps1` | following links, Back to the same screen, the link list |
+| `host/fusectl.ps1` | runs Fuse off-screen without taking the keyboard focus |
+| `testpages/` | test pages and their expected files (`.zx.txt`, `.expect.txt`, `.style.json`, `.sel.json`, `.links.txt`) |
 | `spec/` | the 8TML 1 spec package from its author, unzipped as-is (read-only). Not in the public repo: see `spec/GET-THE-SPEC.md` |
 | `docs/` | notes (`website-notes.md`: what t8wn.com adds, the live server) |
 
 ## Testing
 
-- **The renderer** (13 test pages: blocks, inline markup, wrapping,
-  headers, plain text, open blocks at the end, a form, many screens, too
-  many screens, hostile input):
+Fuse runs off-screen and gets its keys as window messages, so the tests
+never take the keyboard focus: the PC stays usable while they run.
+
+- **The renderer** (14 test pages: blocks, inline markup, wrapping,
+  headers, plain text, open blocks at the end, a form, links, many screens,
+  too many screens, hostile input):
   ```
   powershell -File apps/zx-vvv/host/fusetest.ps1
   ```
-  It loads every page into the browser in Fuse (canned modem replies),
-  captures every screen, reads it back as text by matching each cell
-  against the ROM font (`host/tools/zxscreen.py`) and compares the screens,
-  one after another, with the page's golden file. `-Dir folder` runs pages
-  from elsewhere (e.g. the spec's examples, which aren't in the repo).
-  Don't use the keyboard while it runs.
-- **Golden files:** `python apps/zx-vvv/host/golden.py --check` renders
-  every test page with the reference tool (`8tml render -m zx --plain`,
-  without the caption line) and runs `8tml check` on it. A page with a
+  It loads every page into the browser in Fuse (canned modem replies) and
+  reads every screen back (`host/tools/zxscreen.py` matches each cell
+  against the ROM font, plain, bold and italic, and reads its colours). It
+  checks the text of every screen, every cell's ink, paper, BRIGHT, bold
+  and italic, screen 1 with the first link focused, and the L list.
+  `-Dir folder` runs pages from elsewhere (e.g. the spec's examples, which
+  aren't in the repo); `-Pages a.8tml,b.8tml` only some.
+- **Links and history:** `powershell -File apps/zx-vvv/host/navtest.ps1`
+  follows a link from screen 3, comes back with B to screen 3, then follows
+  one from the L list and comes back again.
+- **Expected files:** `python apps/zx-vvv/host/golden.py --check` writes the
+  layout (`8tml render -m zx --plain`, without the caption line) and runs
+  `8tml check`; `python apps/zx-vvv/host/golden_style.py` writes the
+  colours and fonts (the reference renderer's cells through zx-vvv's ZX
+  colour table), the focused-link screen and the link list. A page with a
   `.expect.txt` keeps that instead: forms (the reference draws them; zx-vvv
   skips them for now) and the page over 64 screens. Needs the spec package.
 - **Addresses:** `ctest` (host build) runs `host/url.c` against the cases;

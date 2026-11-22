@@ -1,0 +1,95 @@
+---
+8tml: 1
+title: Links everywhere
+case: mixed
+---
+# Links on every screen
+
+## Part 1
+
+Text before [link 1a](part1a.8tml) and some more words to fill the line, then <yellow>a colour</> and **[a strong link 1b](part1b.8tml)** in the middle of a paragraph.
+
+* item with [*link 1c*](../up/part1c.8tml)
+* item with [](#top) and <rev>reverse</rev>
+
+Filler line one.\
+Filler line two.\
+Filler line three.
+
+## Part 2
+
+Text before [link 2a](part2a.8tml) and some more words to fill the line, then <yellow>a colour</> and **[a strong link 2b](part2b.8tml)** in the middle of a paragraph.
+
+* item with [*link 2c*](../up/part2c.8tml)
+* item with [](#top) and <rev>reverse</rev>
+
+Filler line one.\
+Filler line two.\
+Filler line three.
+
+## Part 3
+
+Text before [link 3a](part3a.8tml) and some more words to fill the line, then <yellow>a colour</> and **[a strong link 3b](part3b.8tml)** in the middle of a paragraph.
+
+* item with [*link 3c*](../up/part3c.8tml)
+* item with [](#top) and <rev>reverse</rev>
+
+Filler line one.\
+Filler line two.\
+Filler line three.
+
+## Part 4
+
+Text before [link 4a](part4a.8tml) and some more words to fill the line, then <yellow>a colour</> and **[a strong link 4b](part4b.8tml)** in the middle of a paragraph.
+
+* item with [*link 4c*](../up/part4c.8tml)
+* item with [](#top) and <rev>reverse</rev>
+
+Filler line one.\
+Filler line two.\
+Filler line three.
+
+## Part 5
+
+Text before [link 5a](part5a.8tml) and some more words to fill the line, then <yellow>a colour</> and **[a strong link 5b](part5b.8tml)** in the middle of a paragraph.
+
+* item with [*link 5c*](../up/part5c.8tml)
+* item with [](#top) and <rev>reverse</rev>
+
+Filler line one.\
+Filler line two.\
+Filler line three.
+
+## Part 6
+
+Text before [link 6a](part6a.8tml) and some more words to fill the line, then <yellow>a colour</> and **[a strong link 6b](part6b.8tml)** in the middle of a paragraph.
+
+* item with [*link 6c*](../up/part6c.8tml)
+* item with [](#top) and <rev>reverse</rev>
+
+Filler line one.\
+Filler line two.\
+Filler line three.
+
+## Part 7
+
+Text before [link 7a](part7a.8tml) and some more words to fill the line, then <yellow>a colour</> and **[a strong link 7b](part7b.8tml)** in the middle of a paragraph.
+
+* item with [*link 7c*](../up/part7c.8tml)
+* item with [](#top) and <rev>reverse</rev>
+
+Filler line one.\
+Filler line two.\
+Filler line three.
+
+## Part 8
+
+Text before [link 8a](part8a.8tml) and some more words to fill the line, then <yellow>a colour</> and **[a strong link 8b](part8b.8tml)** in the middle of a paragraph.
+
+* item with [*link 8c*](../up/part8c.8tml)
+* item with [](#top) and <rev>reverse</rev>
+
+Filler line one.\
+Filler line two.\
+Filler line three.
+

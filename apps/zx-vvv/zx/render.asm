@@ -1,11 +1,12 @@
-; render.asm - zx-vvv's 8TML renderer (M3): header, blocks, inline text,
-; word wrap, and screen bookmarks for paging.
+; render.asm - zx-vvv's 8TML renderer (M3, M4): header, blocks, inline
+; markup with colours and bold/italic, word wrap, screen bookmarks for
+; paging, and where the links are.
 ;
 ; It follows the 8TML 1 reference tool (spec tools/tml/parser.py and
 ; render.py) step for step, so its screens match `8tml render -m zx
-; --plain` (the golden files in testpages/). Inline markup is handled for
-; the text (tags vanish, entities and escapes decode, links show their
-; text); colours, fonts and following links come in M4.
+; --plain` (the golden files in testpages/), with the reference's colours
+; mapped to the ZX (CLAUDE.md 6.6) and b/i drawn in bold and italic
+; glyphs made from the ROM font.
 ;
 ; How it runs: the page stays raw in the page buffer. One pass over it
 ; (render_measure) records a bookmark at the start of every screen: the
@@ -26,18 +27,31 @@
 WIDTH		equ	32
 SCREEN_ROWS	equ	22
 BRK		equ	10		; a forced line break in joined text
-NBSP		equ	0x80		; &nbsp;: a word character shown as a space
+NBSP		equ	127		; &nbsp;: shown as a space, never wrapped (byte 127
+					; of a page is '?', so the code is free)
 LOOK		equ	340		; lookahead the inline parser needs
 WIN_SIZE	equ	512
 MAX_SCREENS	equ	64		; 1408 rows: more than a full buffer of text
-SNAP_SIZE	equ	16		; src(2) rows(2) flags(1) number(11)
+STATE_SIZE	equ	1+NUM_MAX+1+2	; flags, last list number, links so far
+SNAP_SIZE	equ	4+STATE_SIZE	; src(2) rows to skip(2) state
+CELL		equ	3		; a cell: character (bit 7 italic),
+					; attribute (bit 7 bold), link id (0: none)
+MAX_RUNS	equ	64		; link pieces on one screen
+MODE_DRAW	equ	0
+MODE_MEASURE	equ	1
+MODE_FIND	equ	2		; find link find_no's address
+MODE_LIST	equ	3		; the link list (L)
 NUM_MAX		equ	10		; digits of a list number
 
-; Block colours: the reference defaults, mapped to the ZX (CLAUDE.md 6.6)
-A_TEXT		equ	0x07		; lightgrey -> white
-A_H1		equ	0x78		; white reverse -> bright, black on white
-A_H2		equ	0x47		; white -> bright white (h2, h3)
-A_QUOTE		equ	0x07		; grey -> white
+; Role colours: the reference defaults, as ZX ink + BRIGHT (CLAUDE.md 6.6)
+C_TEXT		equ	0x07		; lightgrey -> white
+C_H1		equ	0x47		; white (reversed)
+C_H2		equ	0x47		; white -> bright white (h2, h3)
+C_QUOTE		equ	0x07		; grey -> white
+C_EM		equ	0x47		; white
+C_STRONG	equ	0x47		; white
+C_LINK		equ	0x41		; lightblue -> bright blue
+A_TEXT		equ	C_TEXT		; attributes of whole rows
 A_PRE		equ	0x44		; lightgreen -> bright green
 A_RULE		equ	0x07		; darkgrey -> white
 
@@ -575,13 +589,18 @@ classify:
 
 ; =============================================================================
 ; Render passes
+;
+; mode: MODE_MEASURE lays the page out without drawing and records the
+; bookmarks; MODE_DRAW draws one screen; MODE_FIND looks for link find_no
+; (its address goes to found_url); MODE_LIST shows the link list, through
+; link_hook in the program.
 
 ; render_measure: lay out the whole page without drawing; screens = how
-; many screens it fills (at least 1), snaps = where each starts.
-; too_long = 1 if it has more than MAX_SCREENS.
+; many screens it fills (at least 1), snaps = where each starts, lk_total =
+; how many links it has. too_long = 1 if it has more than MAX_SCREENS.
 render_measure:
-	ld	a,1
-	ld	(measuring),a
+	ld	a,MODE_MEASURE
+	ld	(mode),a
 	xor	a
 	ld	(too_long),a
 	ld	(scr_rowcnt),a
@@ -592,22 +611,56 @@ render_measure:
 	xor	a
 	ld	(st_flags),a
 	ld	(st_num),a
+	ld	hl,0
+	ld	(st_links),hl
 	call	save_block_start
 	call	snap_record		; screen 1 starts at the body
-	jr	render_go
+	call	render_go
+	ld	hl,(st_links)
+	ld	(lk_total),hl
+	ret
 
-; render_draw: draw screen HL (from 0) on rows PAGE_TOP...
+; render_draw: draw screen HL (from 0) on rows PAGE_TOP..., noting where
+; its links are (runs).
 render_draw:
-	xor	a
-	ld	(measuring),a
+	xor	a			; MODE_DRAW
+	ld	(mode),a
+	ld	(run_n),a
 	ld	a,PAGE_TOP
 	ld	(dr_row),a
-	add	hl,hl
-	add	hl,hl
-	add	hl,hl
-	add	hl,hl
-	ld	de,snaps
+	push	hl
+	call	snap_addr
+	ld	de,4+1+NUM_MAX+1	; the links before the screen's first block
 	add	hl,de
+	ld	e,(hl)
+	inc	hl
+	ld	d,(hl)
+	ld	(base_links),de
+	pop	hl
+	jr	render_snap
+
+; render_find: link find_no's address -> found_url, searching from screen
+; HL. Carry set if found.
+render_find:
+	ld	a,MODE_FIND
+	ld	(mode),a
+	xor	a
+	ld	(found),a
+	call	render_snap
+	ld	a,(found)
+	rra
+	ret
+
+; render_list: the link list from link list_first on, through link_hook.
+render_list:
+	ld	a,MODE_LIST
+	ld	(mode),a
+	ld	hl,0
+	; fall through
+
+; render_snap: run the page from bookmark HL.
+render_snap:
+	call	snap_addr
 	ld	de,src_ptr
 	ldi
 	ldi
@@ -615,12 +668,12 @@ render_draw:
 	ldi
 	ldi
 	ld	de,st_flags
-	ld	bc,1+NUM_MAX+1
+	ld	bc,STATE_SIZE
 	ldir
 	; fall through
 
-; render_go: run the page from src_ptr. A full screen or too many screens
-; ends it early through render_abort.
+; render_go: run the page from src_ptr. A full screen, too many screens or
+; a found link ends it early through render_abort.
 render_go:
 	ld	(render_sp),sp
 	ld	a,(is_page)
@@ -632,13 +685,26 @@ render_abort:
 	ld	sp,(render_sp)
 	ret
 
+; snap_addr: HL = the address of bookmark HL (snaps + HL * 18).
+snap_addr:
+	add	hl,hl
+	ld	d,h
+	ld	e,l
+	add	hl,hl
+	add	hl,hl
+	add	hl,hl
+	add	hl,de
+	ld	de,snaps
+	add	hl,de
+	ret
+
 ; save_block_start: where the next block starts, for a bookmark.
 save_block_start:
 	ld	hl,(src_ptr)
 	ld	(bs_src),hl
 	ld	hl,st_flags
 	ld	de,bs_flags
-	ld	bc,1+NUM_MAX+1
+	ld	bc,STATE_SIZE
 	ldir
 	ld	hl,0
 	ld	(blk_rows),hl
@@ -656,12 +722,7 @@ snap_record:
 	jr	render_abort
 .ok:
 	ld	hl,(screens)
-	add	hl,hl
-	add	hl,hl
-	add	hl,hl
-	add	hl,hl
-	ld	de,snaps
-	add	hl,de
+	call	snap_addr
 	ex	de,hl
 	ld	hl,bs_src
 	ldi
@@ -670,7 +731,7 @@ snap_record:
 	ldi
 	ldi
 	ld	hl,bs_flags
-	ld	bc,1+NUM_MAX+1
+	ld	bc,STATE_SIZE
 	ldir
 	ld	hl,(screens)
 	inc	hl
@@ -679,12 +740,22 @@ snap_record:
 
 ; row_emit: one row of A cells from rowbuf. Measuring: count it (a new
 ; screen every 22 rows). Drawing: skip the rows before the screen, draw the
-; rest, stop when the screen is full.
+; rest and note where the links are, stop when the screen is full.
 row_emit:
 	ld	(row_len),a
-	ld	a,(measuring)
+	ld	a,(mode)
+	cp	MODE_MEASURE
+	jr	z,.measure
 	or	a
-	jr	z,.draw
+	ret	nz			; finding or listing links: no rows
+	ld	hl,(skip)
+	ld	a,h
+	or	l
+	jr	z,.show
+	dec	hl
+	ld	(skip),hl
+	ret
+.measure:
 	ld	a,(scr_rowcnt)
 	cp	SCREEN_ROWS
 	jr	nz,.count
@@ -697,37 +768,34 @@ row_emit:
 	inc	hl
 	ld	(blk_rows),hl
 	ret
-.draw:
-	ld	hl,(skip)
-	ld	a,h
-	or	l
-	jr	z,.show
-	dec	hl
-	ld	(skip),hl
-	ret
 .show:
-	ld	a,(dr_row)
-	ld	b,a
-	ld	c,0
-	call	scr_at
-	ld	a,(row_len)
-	or	a
-	jr	z,.next
-	ld	b,a
+	xor	a
+	ld	(re_col),a
+	ld	(re_prev),a
 	ld	hl,rowbuf
+	ld	(re_ptr),hl
 .c:
+	ld	a,(re_col)
+	ld	hl,row_len
+	cp	(hl)
+	jr	nc,.next
+	ld	c,a
+	ld	hl,(re_ptr)
+	ld	d,(hl)
+	inc	hl
 	ld	e,(hl)
 	inc	hl
 	ld	a,(hl)
 	inc	hl
-	ld	(scr_attr),a
-	ld	a,e
-	cp	NBSP
-	jr	nz,.p
-	ld	a,' '
-.p:
-	call	scr_putc		; keeps BC DE HL
-	djnz	.c
+	ld	(re_ptr),hl
+	ld	(re_id),a
+	ld	a,(dr_row)
+	ld	b,a
+	call	put_cell
+	call	note_link
+	ld	hl,re_col
+	inc	(hl)
+	jr	.c
 .next:
 	ld	a,(dr_row)
 	inc	a
@@ -736,8 +804,144 @@ row_emit:
 	ret	nz
 	jp	render_abort
 
-; row_text: a row of A characters from HL (cut by the caller), colour C,
-; in the page's case.
+; note_link: the cell just drawn (re_col, re_id) into the screen's link
+; runs: [link number:2][row][column][length], in the order drawn.
+note_link:
+	ld	a,(re_id)
+	ld	b,a
+	ld	a,(re_prev)
+	cp	b
+	ld	a,b
+	ld	(re_prev),a
+	jr	nz,.new
+	or	a
+	ret	z			; no link
+	ld	hl,(run_last)		; the same link goes on: one longer
+	inc	(hl)
+	ret
+.new:
+	or	a
+	ret	z
+	ld	a,(run_n)
+	cp	MAX_RUNS
+	ret	nc
+	inc	a
+	ld	(run_n),a
+	dec	a
+	ld	l,a
+	ld	h,0
+	ld	d,h
+	ld	e,l
+	add	hl,hl
+	add	hl,hl
+	add	hl,de			; * 5
+	ld	de,runs
+	add	hl,de
+	push	hl
+	ld	a,(base_links)		; the link's number from its id: the
+	and	0x7F			; next one with these low 7 bits
+	ld	e,a
+	ld	a,b
+	and	0x7F
+	sub	e
+	and	0x7F
+	ld	e,a
+	ld	d,0
+	ld	hl,(base_links)
+	add	hl,de
+	ex	de,hl
+	pop	hl
+	ld	(hl),e
+	inc	hl
+	ld	(hl),d
+	inc	hl
+	ld	a,(dr_row)
+	ld	(hl),a
+	inc	hl
+	ld	a,(re_col)
+	ld	(hl),a
+	inc	hl
+	ld	(hl),1
+	ld	(run_last),hl
+	ret
+
+; put_cell: draw character D (bit 7: italic; NBSP is a space) at row B,
+; column C with attribute E (bit 7: bold), from the ROM font. Bold ORs each
+; glyph row with itself one pixel to the right; italic shifts the top four
+; rows one pixel to the right.
+put_cell:
+	ld	a,e
+	ld	(pc_attr),a
+	ld	a,d
+	and	0x80
+	ld	(pc_ital),a
+	ld	a,b			; HL = the cell's top pixel row
+	and	0x18
+	or	0x40
+	ld	h,a
+	ld	a,b
+	and	7
+	rrca
+	rrca
+	rrca
+	or	c
+	ld	l,a
+	push	hl
+	ld	a,d
+	and	0x7F
+	cp	NBSP
+	jr	nz,.g
+	ld	a,' '
+.g:
+	sub	32
+	ld	l,a
+	ld	h,0
+	add	hl,hl
+	add	hl,hl
+	add	hl,hl
+	ld	bc,0x3D00		; the ROM font, from character 32
+	add	hl,bc
+	ex	de,hl
+	pop	hl
+	ld	b,8
+.row:
+	ld	a,(de)
+	ld	c,a
+	ld	a,(pc_attr)
+	rla
+	jr	nc,.nb
+	ld	a,c			; bold
+	srl	a
+	or	c
+	ld	c,a
+.nb:
+	ld	a,(pc_ital)
+	or	a
+	jr	z,.put
+	ld	a,b
+	cp	5
+	jr	c,.put
+	srl	c			; italic: rows 0-3
+.put:
+	ld	(hl),c
+	inc	de
+	inc	h
+	djnz	.row
+	ld	a,h			; the attribute: 0x5800 + row * 32 + column
+	sub	8
+	and	0x18
+	rrca
+	rrca
+	rrca
+	or	0x58
+	ld	h,a
+	ld	a,(pc_attr)
+	and	0x7F
+	ld	(hl),a
+	ret
+
+; row_text: a row of A characters from HL (cut by the caller), attribute
+; C, in the page's case.
 row_text:
 	ld	de,rowbuf
 	ld	b,a
@@ -753,10 +957,13 @@ row_text:
 	ld	a,c
 	ld	(de),a
 	inc	de
+	xor	a
+	ld	(de),a
+	inc	de
 	djnz	.l
 .e:
 	pop	af
-	jr	row_emit
+	jp	row_emit
 
 ; empty_row / block_begin: a waiting blank line becomes an empty row when
 ; the next block starts (blank lines at the end show nothing).
@@ -851,6 +1058,8 @@ render_body:
 	inc	hl
 	ld	(hl),A_RULE
 	inc	hl
+	ld	(hl),0
+	inc	hl
 	djnz	.r
 	ld	a,WIDTH
 	call	row_emit
@@ -925,6 +1134,7 @@ text_block:
 	ld	(bk_indent),a
 	ld	(bk_mlen),a
 	ld	(bk_center),a
+	ld	(bk_rev),a
 	ld	(pr_head),a
 	ld	a,(k_kind)
 	ld	(pr_kind),a
@@ -933,9 +1143,11 @@ text_block:
 	ld	(pr_head),a		; no continuation lines
 	ld	a,(k_level)
 	dec	a
-	ld	a,A_H1
-	jr	z,.attr
-	ld	a,A_H2
+	ld	a,C_H2
+	jr	nz,.attr
+	ld	a,1			; h1: reversed
+	ld	(bk_rev),a
+	ld	a,C_H1
 	jr	.attr
 .bul:
 	cp	K_BULLET
@@ -946,23 +1158,23 @@ text_block:
 	ld	(bk_mlen),a
 	ld	a,2
 	ld	(bk_indent),a
-	ld	a,A_TEXT
+	ld	a,C_TEXT
 	jr	.attr
 .numb:
 	cp	K_NUM
 	jr	nz,.quo
 	call	list_number
-	ld	a,A_TEXT
+	ld	a,C_TEXT
 	jr	.attr
 .quo:
 	cp	K_QUOTE
-	ld	a,A_TEXT
+	ld	a,C_TEXT
 	jr	nz,.attr
 	ld	a,2
 	ld	(bk_indent),a
-	ld	a,A_QUOTE
+	ld	a,C_QUOTE
 .attr:
-	ld	(bk_attr),a
+	ld	(bk_col),a
 	ld	a,(bk_indent)
 	ld	b,a
 	ld	a,WIDTH
@@ -1009,12 +1221,12 @@ text_block:
 	xor	a
 	ld	(cur_len),a
 	ld	(word_len),a
-	ld	(in_em),a
-	ld	(in_strong),a
+	ld	(in_link),a
+	call	in_reset
 	ld	hl,0
 	ld	(pend_cnt),hl
 	ld	(lines_out),hl
-	inc	a
+	ld	a,1
 	ld	(in_outer),a
 	ld	a,' '
 	ld	(in_prev),a
@@ -1410,9 +1622,25 @@ inline_run:
 	jr	.lok
 .l3:
 	cp	3
-	jr	nz,.lok
+	jr	nz,.l4
 	ld	a,BRK
 	call	wr_char
+	jr	.lok
+.l4:
+	cp	4
+	jr	nz,.l5
+	ld	a,(tag_val)		; <colour>
+	ld	(in_color),a
+	jr	.lok
+.l5:
+	cp	5
+	jr	nz,.lok
+	ld	a,(tag_val)		; <b> <i> <rev>: 1 2 3
+	ld	e,a
+	ld	d,0
+	ld	hl,in_b-1
+	add	hl,de
+	ld	(hl),1
 .lok:
 	pop	hl
 	ld	hl,(tok_end)
@@ -1460,6 +1688,14 @@ inline_run:
 	jr	z,.slit
 	ld	a,1
 	ld	(de),a
+	ld	a,(st_w)		; and sets i (*) or b (**)
+	cp	2
+	ld	a,1
+	jr	z,.sb
+	ld	(in_i),a
+	jr	.sskip
+.sb:
+	ld	(in_b),a
 .sskip:
 	ld	a,(st_w)
 	ld	e,a
@@ -1549,6 +1785,14 @@ inline_run:
 .u0:
 	xor	a
 	ld	(de),a
+	; a link: its number, and the program's look at it (find, list)
+	ld	hl,(st_links)
+	ld	(lk_cur),hl
+	inc	hl
+	ld	(st_links),hl
+	ld	a,(mode)
+	cp	MODE_FIND
+	call	nc,link_hook
 	; the label: the text, or the url if there is none
 	pop	hl
 	inc	hl
@@ -1569,25 +1813,30 @@ inline_run:
 	ld	hl,(tok_end)
 	inc	hl
 	push	hl
-	ld	a,(in_em)
-	ld	h,a
-	ld	a,(in_strong)
-	ld	l,a
+	ld	hl,(in_em)		; in_em .. in_color: 6 bytes
+	push	hl
+	ld	hl,(in_em+2)
+	push	hl
+	ld	hl,(in_em+4)
 	push	hl
 	ex	de,hl
 	ld	(in_p),hl
 	xor	a
 	ld	(in_outer),a
-	ld	(in_em),a
-	ld	(in_strong),a
+	call	in_reset
+	ld	a,1
+	ld	(in_link),a
 	ld	a,' '
 	ld	(in_prev),a
 	call	inline_run
 	pop	hl
-	ld	a,h
-	ld	(in_em),a
-	ld	a,l
-	ld	(in_strong),a
+	ld	(in_em+4),hl
+	pop	hl
+	ld	(in_em+2),hl
+	pop	hl
+	ld	(in_em),hl
+	xor	a
+	ld	(in_link),a
 	pop	hl
 	ld	(in_p),hl
 	ld	a,1
@@ -1605,6 +1854,11 @@ in_reset:
 	xor	a
 	ld	(in_em),a
 	ld	(in_strong),a
+	ld	(in_b),a
+	ld	(in_i),a
+	ld	(in_rev),a
+	dec	a
+	ld	(in_color),a		; 0xFF: none
 	ret
 
 ; is_space: Z if A is a space, a line break or the end (0).
@@ -1718,8 +1972,9 @@ entity_value:
 	ret
 
 ; tag_kind: the C characters at HL are what is between < and >.
-; A = 0 not a tag (printed), 1 a tag with no effect on the text,
-; 2 a closing tag that resets the inline state, 3 <br>.
+; A = 0 not a tag (printed), 1 a tag with no effect (<center>), 2 a
+; closing tag that resets the inline state, 3 <br>, 4 a colour, 5 b/i/rev
+; (tag_val: the colour, or 1 b, 2 i, 3 rev).
 tag_kind:
 	ld	de,tagbuf		; lower case copy, 0-terminated
 	ld	b,c
@@ -1758,10 +2013,14 @@ tag_kind:
 	or	a
 	ret	z			; <>
 	call	tag_name_kind
-	cp	4
-	jr	z,.br
 	or	a
 	ret	z
+	cp	3
+	jr	z,.one
+	cp	4
+	jr	z,.br
+	add	a,3			; colour 4, flag 5
+	ret
 .one:
 	ld	a,1
 	ret
@@ -1772,8 +2031,8 @@ tag_kind:
 	xor	a
 	ret
 
-; tag_name_kind: the C characters at HL (lower case): 1 a colour name,
-; 2 b/i/rev, 3 center, 4 br, 0 anything else.
+; tag_name_kind: the C characters at HL (lower case): A = 1 a colour name,
+; 2 b/i/rev, 3 center, 4 br, 0 anything else; tag_val = its value.
 tag_name_kind:
 	push	hl
 	push	bc
@@ -1786,12 +2045,14 @@ tag_name_kind:
 	push	bc
 	push	de
 	inc	de
+	inc	de
 	call	word_is
 	pop	de
 	pop	bc
 	pop	hl
 	jr	z,.found
-.skip:					; DE: kind -> the next kind
+	inc	de			; DE: kind -> the next kind
+.skip:
 	inc	de
 	ld	a,(de)
 	or	a
@@ -1799,6 +2060,10 @@ tag_name_kind:
 	inc	de
 	jr	.n
 .found:
+	inc	de
+	ld	a,(de)
+	ld	(tag_val),a
+	dec	de
 	ld	a,(de)			; the kind
 	pop	bc
 	pop	hl
@@ -1810,7 +2075,71 @@ tag_name_kind:
 	ret
 
 ; =============================================================================
-; Word wrap (reference render.wrap() and text_block())
+; Word wrap (reference render.wrap() and text_block()). Cells are
+; [character][attribute][link id], CELL bytes.
+
+; cell_style: B = the character's italic bit, C = the attribute (bit 7
+; bold), E = the link id, for the inline state now (reference
+; render.cells()): the role's colour (or the link's), em's then strong's
+; colour for i and b, then an inline colour; reversed by the role or <rev>.
+cell_style:
+	ld	a,(in_link)
+	or	a
+	ld	a,C_LINK
+	ld	b,0			; links aren't reversed
+	jr	nz,.col
+	ld	a,(bk_rev)
+	ld	b,a
+	ld	a,(bk_col)
+.col:
+	ld	c,a
+	ld	a,(in_i)
+	or	a
+	jr	z,.nb1
+	ld	c,C_EM
+.nb1:
+	ld	a,(in_b)
+	or	a
+	jr	z,.nb2
+	ld	c,C_STRONG
+.nb2:
+	ld	a,(in_color)
+	inc	a
+	jr	z,.nc
+	dec	a
+	ld	c,a
+.nc:
+	ld	a,(in_rev)
+	or	b
+	jr	z,.norev
+	ld	a,c			; reversed: black ink on the colour
+	and	0x07
+	add	a,a
+	add	a,a
+	add	a,a
+	ld	b,a
+	ld	a,c
+	and	0x40
+	or	b
+	ld	c,a
+.norev:
+	ld	a,(in_b)
+	or	a
+	jr	z,.nob
+	set	7,c
+.nob:
+	ld	a,(in_i)
+	rrca
+	and	0x80
+	ld	b,a
+	ld	e,0
+	ld	a,(in_link)
+	or	a
+	ret	z
+	ld	a,(lk_cur)		; the link's id: its number's low 7 bits + 128
+	or	0x80
+	ld	e,a
+	ret
 
 ; wr_char: one character of the block's text. Keeps HL.
 wr_char:
@@ -1820,17 +2149,19 @@ wr_char:
 	cp	' '
 	jr	z,.space
 	call	to_case
-	ld	c,a
+	push	af
 	ld	a,(word_len)
-	add	a,a
-	ld	e,a
-	ld	d,0
-	ld	hl,word_cells
+	call	cells_at
+	ld	de,word_cells
 	add	hl,de
+	call	cell_style
+	pop	af
+	or	b
+	ld	(hl),a
+	inc	hl
 	ld	(hl),c
 	inc	hl
-	ld	a,(bk_attr)
-	ld	(hl),a
+	ld	(hl),e
 	ld	a,(word_len)
 	inc	a
 	ld	(word_len),a
@@ -1850,20 +2181,32 @@ wr_char:
 	or	a
 	sbc	hl,de
 	jr	nc,.done		; only the first 32 are ever shown
-	ld	hl,(pend_cnt)
-	dec	hl
-	add	hl,hl
+	ld	a,(pend_cnt)
+	dec	a
+	call	cells_at
 	ld	de,pend_cells
 	add	hl,de
+	call	cell_style
 	ld	(hl),' '
 	inc	hl
-	ld	a,(bk_attr)
-	ld	(hl),a
+	ld	(hl),c
+	inc	hl
+	ld	(hl),e
 	jr	.done
 .brk:
 	call	place_word
 	call	wr_flush		; the line, with what fits of the spaces
 	jr	.done
+
+; cells_at: HL = A * CELL.
+cells_at:
+	ld	l,a
+	ld	h,0
+	ld	d,h
+	ld	e,l
+	add	hl,hl
+	add	hl,de
+	ret
 
 ; wr_end: the end of the block.
 wr_end:
@@ -1929,14 +2272,11 @@ wr_overflow:
 	ld	a,(wr_width)
 	call	out_line
 	ld	a,(wr_width)
-	add	a,a
-	ld	e,a
-	ld	d,0
-	ld	hl,word_cells
-	add	hl,de
+	call	cells_at
 	ld	de,word_cells
-	ldi
-	ldi
+	add	hl,de
+	ld	bc,CELL
+	ldir
 	ld	a,1
 	ld	(word_len),a
 	ret
@@ -1992,18 +2332,16 @@ cur_append:
 	or	a
 	ret	z
 	push	af
-	ld	c,a
-	ld	a,(cur_len)
-	add	a,a
-	ld	e,a
-	ld	d,0
 	push	hl
-	ld	hl,cur_cells
+	call	cells_at		; HL = the bytes to copy
+	push	hl
+	ld	a,(cur_len)
+	call	cells_at
+	ld	de,cur_cells
 	add	hl,de
 	ex	de,hl
+	pop	bc
 	pop	hl
-	ld	b,0
-	sla	c
 	ldir
 	pop	af
 	ld	b,a
@@ -2018,6 +2356,8 @@ out_line:
 	ld	(ol_src),hl
 	ld	(ol_len),a
 	ld	de,rowbuf
+	xor	a
+	ld	(ol_cells),a
 	ld	a,(bk_indent)
 	or	a
 	jr	z,.centre
@@ -2034,20 +2374,12 @@ out_line:
 .mk:
 	ld	a,(hl)
 	inc	hl
-	ld	(de),a
-	inc	de
-	ld	a,A_TEXT
-	ld	(de),a
-	inc	de
+	call	put_plain
 	djnz	.mk
 	ld	b,1			; and a space
 .indent:
 	ld	a,' '
-	ld	(de),a
-	inc	de
-	ld	a,A_TEXT
-	ld	(de),a
-	inc	de
+	call	put_plain
 	djnz	.indent
 .centre:
 	ld	a,(bk_center)
@@ -2062,32 +2394,46 @@ out_line:
 	ld	b,a
 .cs:
 	ld	a,' '
-	ld	(de),a
-	inc	de
-	ld	a,A_TEXT
-	ld	(de),a
-	inc	de
+	call	put_plain
 	djnz	.cs
 .body:
 	ld	a,(ol_len)
 	or	a
 	jr	z,.emit
-	add	a,a
-	ld	c,a
-	ld	b,0
+	push	de
+	call	cells_at
+	ld	b,h
+	ld	c,l
+	pop	de
 	ld	hl,(ol_src)
 	ldir
+	ld	hl,ol_cells
+	ld	a,(ol_len)
+	add	a,(hl)
+	ld	(hl),a
 .emit:
-	ex	de,hl
-	ld	de,rowbuf
-	or	a
-	sbc	hl,de
-	srl	l			; cells (at most 32)
-	ld	a,l
 	ld	hl,(lines_out)
 	inc	hl
 	ld	(lines_out),hl
+	ld	a,(ol_cells)
 	jp	row_emit
+
+; put_plain: a cell with character A in the text colour, no link, at DE.
+; Keeps HL and B.
+put_plain:
+	push	hl
+	ld	(de),a
+	inc	de
+	ld	a,A_TEXT
+	ld	(de),a
+	inc	de
+	xor	a
+	ld	(de),a
+	inc	de
+	ld	hl,ol_cells
+	inc	(hl)
+	pop	hl
+	ret
 
 ; =============================================================================
 ; Characters
@@ -2136,17 +2482,20 @@ entities:
 		db	"lt",0,'<', "gt",0,'>', "amp",0,'&', "quot",0,'"', "nbsp",0,NBSP
 		db	0
 
-; [kind]["name" 0]: kind 1 colour, 2 b/i/rev, 3 center, 4 br
+; [kind][value]["name" 0]: kind 1 colour (value: ZX ink + BRIGHT, the
+; hand-tuned table of CLAUDE.md 6.6), 2 b/i/rev (1/2/3), 3 center, 4 br
 tag_names:
-		db	1,"black",0, 1,"white",0, 1,"red",0, 1,"cyan",0
-		db	1,"purple",0, 1,"green",0, 1,"blue",0, 1,"yellow",0
-		db	1,"orange",0, 1,"brown",0, 1,"pink",0, 1,"darkgrey",0
-		db	1,"grey",0, 1,"lightgreen",0, 1,"lightblue",0, 1,"lightgrey",0
-		db	1,"magenta",0, 1,"lightred",0, 1,"gray",0, 1,"darkgray",0
-		db	1,"lightgray",0
-		db	2,"b",0, 2,"i",0, 2,"rev",0
-		db	3,"center",0
-		db	4,"br",0
+		db	1,0x00,"black",0, 1,0x47,"white",0, 1,0x02,"red",0
+		db	1,0x45,"cyan",0, 1,0x03,"purple",0, 1,0x04,"green",0
+		db	1,0x01,"blue",0, 1,0x46,"yellow",0, 1,0x06,"orange",0
+		db	1,0x02,"brown",0, 1,0x42,"pink",0, 1,0x07,"darkgrey",0
+		db	1,0x07,"grey",0, 1,0x44,"lightgreen",0, 1,0x41,"lightblue",0
+		db	1,0x07,"lightgrey",0
+		db	1,0x03,"magenta",0, 1,0x42,"lightred",0, 1,0x07,"gray",0
+		db	1,0x07,"darkgray",0, 1,0x07,"lightgray",0
+		db	2,1,"b",0, 2,2,"i",0, 2,3,"rev",0
+		db	3,0,"center",0
+		db	4,0,"br",0
 		db	0
 
 ; =============================================================================
@@ -2177,14 +2526,30 @@ k_numlen:	db	0
 k_indent2:	db	0
 
 st_flags:	db	0			; the parser's state at a block:
-st_num:		ds	NUM_MAX+1		;   flags, last list number
+st_num:		ds	NUM_MAX+1		;   flags, last list number,
+st_links:	dw	0			;   links so far (STATE_SIZE)
 bs_src:		dw	0			; ... saved at the block's start
 bs_flags:	db	0
 bs_num:		ds	NUM_MAX+1
+bs_links:	dw	0
 num_prev:	ds	NUM_MAX+1
 blk_rows:	dw	0
 
-measuring:	db	0
+mode:		db	0
+lk_total:	dw	0			; links on the page
+lk_cur:		dw	0			; the link being read
+found:		db	0
+base_links:	dw	0			; links before the drawn screen's first block
+run_n:		db	0			; link runs on the screen
+run_last:	dw	0
+re_col:		db	0
+re_prev:	db	0
+re_id:		db	0
+re_ptr:		dw	0
+pc_attr:	db	0
+pc_ital:	db	0
+ol_cells:	db	0
+tag_val:	db	0
 too_long:	db	0
 screens:	dw	0
 scr_rowcnt:	db	0
@@ -2196,7 +2561,8 @@ pl_left:	db	0
 pl_n:		db	0
 pl_p:		dw	0
 
-bk_attr:	db	0
+bk_col:		db	0			; the role's colour, reversed?
+bk_rev:		db	0
 bk_indent:	db	0
 bk_center:	db	0
 bk_mlen:	db	0
@@ -2214,8 +2580,13 @@ hist:		ds	4
 in_p:		dw	0
 win_end:	dw	0
 in_outer:	db	0
-in_em:		db	0
+in_em:		db	0			; inline state (6 bytes, in order)
 in_strong:	db	0
+in_b:		db	0			; b i rev: tag values 1 2 3
+in_i:		db	0
+in_rev:		db	0
+in_color:	db	0xFF			; 0xFF: none
+in_link:	db	0
 in_prev:	db	0
 tok_end:	dw	0
 st_w:		db	0

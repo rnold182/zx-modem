@@ -388,8 +388,8 @@ Addresses (resolution, `index.8tml`, fragments, typed `host/path`) are done by t
 | `5800–5AFF` | Attributes (`FLASH, BRIGHT, PAPER[3], INK[3]` per cell) |
 | `5B00–7FFF` | System variables, BASIC, stack. Contended memory, so avoid placing code here. |
 | `8000–9FFF` | The ZX MODEM menu and its API table (the browser borrows its screen, link and text-entry routines) |
-| `A000–` | Browser code and data (~6 KB in M3; fonts, link table and history to come), then its buffers (not loaded from tape; the fetch and renderer buffers share memory) and 64 screen bookmarks |
-| `–FF57` | Raw page buffer: the rest, up to the UDGs (~15 KB in M3) |
+| `A000–` | Browser code and data (~8 KB in M4: no font tables, glyphs are made from the ROM font while drawing), then its buffers (not loaded from tape; the fetch and renderer buffers share memory): 64 screen bookmarks, the screen's link runs, the focused link's saved attributes and address, a 512-byte history
+| `–FF57` | Raw page buffer: the rest, up to the UDGs (~11.6 KB in M4) |
 | `5B00–5BFF` | The printer buffer: the renderer's source line buffer (256-aligned) |
 
 *Decided 2026-11-22: zx-vvv is a kind 1 app (loaded at 0xA000, returns to the menu), not a program replacing the menu. If the page buffer gets too small, a kind 2 program with its own link code is still possible.*
@@ -454,19 +454,22 @@ Addresses (resolution, `index.8tml`, fragments, typed `host/path`) are done by t
 - **Rows 1–22:** content (22 lines).
 - **Row 23:** status bar (URL, "Loading…", errors, key hints).
 
-### 6.5 Keys (proposal, to be confirmed)
+### 6.5 Keys (decided 2026-11-22)
 
 | Key | Action |
 |---|---|
-| CAPS+6 / CAPS+7 | Next / previous focusable item |
+| 6 / 7, or the cursor keys (CAPS+6 / CAPS+7) | Next / previous link (like the menu); past the last / first, the next / previous screen |
 | ENTER | Follow the focused link |
 | N / M | Next / previous screen |
-| B | Back |
+| B | Back: the previous page, at the screen it was on |
+| L | The page's links, numbered (6/7, ENTER, N/M, L back) |
 | G | Go to a URL (line input) |
 | R | Reload |
 | H | Home |
+| ? | Help: the keys, page size and free buffer (title row: "?: help") |
+| Q | Back to the menu |
 
-**Focus highlight:** swap ink and paper in the attribute cells of the focused link. This is cheap: only attribute bytes change.
+**Focus highlight:** the focused link's cells are reversed (only attribute bytes change), as the spec's default `link-sel` (lightblue reverse) is the link colour reversed.
 
 ### 6.6 Colour and style mapping
 
@@ -762,8 +765,8 @@ ESP32 power: its own USB supply. Never from the Spectrum (the 48K's 7805 already
 | **M2b** | **Modem: Wi-Fi from the Spectrum** | Overlay 1 loads into `0xA000` and lists networks; `J` with a wrong password reports an error; a right password connects and saves to NVS; after a power cycle the ESP32 reconnects by itself; a 5-s button press forgets the credentials |
 | **M2c** | **Modem: proof of generality** | A BASIC program uses the `USR` wrapper to fetch a plain-text URL (e.g. a weather or quote page) and `PRINT`s it. **End of Phase 1.** Review before starting Phase 2 |
 | M2d | Browser skeleton | **Done 2026-11-22, proven on the real 48K.** Http service `G` returns `url-info` + body; the Spectrum resolves addresses (62/62 cases in C and in Z80) and pages raw text. Fuse offline mode via `fake_reply.py page:`/`httperr:` |
-| M3 | Renderer core | Page detection and plain-text fallback, the header (`#` comments, unclosed header, **default uppercase**, `case: mixed`), all blocks from §4.3 (incl. list renumbering, continuation lines, gap/no-gap spacing, `\` and `<br>` breaks, `<center>`), skipping of unknown and `:::form` blocks with a "has a form" notice, wrapping, preformatted cut, title and status bars, default role styles from §4.5, paging with snapshots, page-cut notice. **Text layout matches the `render -m zx --plain` golden files for the examples** (inline markup is stripped at this stage). **Done 2026-11-22, proven on the real 48K** (13 test pages + the spec examples + the live T8wn page match screen for screen; `apps/zx-vvv/host/fusetest.ps1`). Inline *text* handling (tags, entities, escapes, link text, emphasis flanking) moved here from M4; M4 keeps colours, fonts and links. Title row: page title + "K: help"; the help page shows the page size and free buffer |
-| M4 | Inline and links | Emphasis with the flanking rules, exact-name tags, the colour/flag state model, escapes and entities (incl. `&nbsp;` no-wrap), link buffering and limits, empty link text, non-http links shown but not followable, fragment-only links, bold/italic fonts, link table, focus, follow, back/history. **All golden files match, including `--links` order** |
+| M3 | Renderer core | Page detection and plain-text fallback, the header (`#` comments, unclosed header, **default uppercase**, `case: mixed`), all blocks from §4.3 (incl. list renumbering, continuation lines, gap/no-gap spacing, `\` and `<br>` breaks, `<center>`), skipping of unknown and `:::form` blocks with a "has a form" notice, wrapping, preformatted cut, title and status bars, default role styles from §4.5, paging with snapshots, page-cut notice. **Text layout matches the `render -m zx --plain` golden files for the examples** (inline markup is stripped at this stage). **Done 2026-11-22, proven on the real 48K** (13 test pages + the spec examples + the live T8wn page match screen for screen; `apps/zx-vvv/host/fusetest.ps1`). Inline *text* handling (tags, entities, escapes, link text, emphasis flanking) moved here from M4; M4 keeps colours, fonts and links. Title row: page title + "?: help"; the help page shows the page size and free buffer |
+| M4 | Inline and links | Emphasis with the flanking rules, exact-name tags, the colour/flag state model, escapes and entities (incl. `&nbsp;` no-wrap), link buffering and limits, empty link text, non-http links shown but not followable, fragment-only links, bold/italic fonts, link table, focus, follow, back/history. **All golden files match, including `--links` order**. **Done 2026-11-22, proven on the real 48K**: inline colours through the ZX table, bold/italic glyphs made from the ROM font while drawing (cell = char with italic bit, attribute with bold in the FLASH bit, link id), link runs per screen (addresses found by re-reading from the screen's bookmark, no address table), focus 6/7, ENTER, B with a 512-byte history that returns to the same screen, L link list. Checked cell by cell against the reference (`golden_style.py`: colours, fonts, `--select 1`, `--links`) and by `navtest.ps1` |
 | M5 | Real network | HTTP/HTTPS, redirects, refusal of HTML and other blocked types, URL resolution, transliteration, error pages, URL entry screen |
 | M6 | Robustness | Chunk re-request (`C`), shorter pilots, parser fuzzing passes, progressive first-screen render |
 | M7 | Stylesheets | 8SS parsing, the cascade, `zx.` prefixes, `site.8ss` caching |

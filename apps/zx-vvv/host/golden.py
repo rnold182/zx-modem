@@ -36,7 +36,7 @@ def render(page):
 def main():
     check = '--check' in sys.argv
     for page in sorted(glob.glob(os.path.join(PAGES, '*.8tml')) + glob.glob(os.path.join(PAGES, '*.txt'))):
-        if page.endswith('.zx.txt') or page.endswith('.expect.txt'):
+        if page.endswith(('.zx.txt', '.expect.txt', '.links.txt')):
             continue
         name = os.path.splitext(page)[0]
         if check and page.endswith('.8tml'):
