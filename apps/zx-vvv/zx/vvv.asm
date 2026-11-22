@@ -4,11 +4,10 @@
 ; A ZX MODEM app (docs/app-api.md): the menu loads it at APP_ADDR and CALLs
 ; it; Q returns. It uses the menu's screen, link and text-entry routines.
 ;
-; Milestone M2d: fetch a page and show it as raw text. The Spectrum does the
-; browser's work: it resolves addresses (url.asm), chooses what to ask for
-; and what to refuse, and turns the modem's error codes into messages. The
-; modem only fetches (http service, docs/link-protocol.md 6.4). The 8TML
-; parser and renderer replace the raw view in M3.
+; The Spectrum does the browser's work: it resolves addresses (url.asm),
+; chooses what to ask for and what to refuse, turns the modem's error codes
+; into messages, and lays out 8TML pages itself (render.asm, M3). The
+; modem only fetches (http service, docs/link-protocol.md 6.4).
 ;
 ; Screen: row 0 title, rows 1-22 the page, row 23 status.
 ; Keys: G go to an address, R reload, H home, N/M next/previous screen,
@@ -58,7 +57,7 @@ main_loop:
 	cp	'n'
 	jr	z,key_next
 	cp	'm'
-	jr	z,key_prev
+	jp	z,key_prev
 	cp	'k'
 	jr	z,key_help
 	cp	'?'
@@ -88,6 +87,21 @@ key_help:
 	call	text_at			; HL ends after the 0
 	jr	.line
 .wait:
+	ld	bc,21*256+1		; how full the page buffer is
+	ld	a,A_HINT
+	ld	hl,s_pagesize
+	call	text_at
+	ld	hl,(page_len)
+	call	print_dec16
+	ld	hl,s_bytes
+	call	scr_print
+	ld	hl,PAGE_MAX
+	ld	de,(page_len)
+	or	a
+	sbc	hl,de
+	call	print_dec16
+	ld	hl,s_free
+	call	scr_print
 	call	wait_key
 	call	show_page
 	jp	main_loop
@@ -95,7 +109,7 @@ key_help:
 key_home:
 	ld	hl,s_home
 	call	go_typed
-	jr	main_loop
+	jp	main_loop
 
 key_reload:
 	ld	hl,cur_url
@@ -103,19 +117,19 @@ key_reload:
 	or	a
 	jr	z,key_home		; nothing loaded yet
 	call	go_typed
-	jr	main_loop
+	jp	main_loop
 
 key_next:
 	ld	hl,(page_no)
 	inc	hl
-	ld	de,(pages)
+	ld	de,(screens)
 	or	a
 	sbc	hl,de
-	jr	nc,main_loop		; the last screen
+	jp	nc,main_loop		; the last screen
 	add	hl,de
 	ld	(page_no),hl
 	call	show_page
-	jr	main_loop
+	jp	main_loop
 
 key_prev:
 	ld	hl,(page_no)
@@ -239,11 +253,11 @@ fetch_url:
 	ld	a,(link_header+1)
 	and	2			; cut by the modem
 	ld	(page_cut),a
-	call	count_pages
+	call	new_page
 	jp	show_page
 .body_failed:
 	push	af
-	call	count_pages		; an empty page
+	call	new_page		; an empty page
 	call	show_page
 	pop	af
 	ld	hl,s_stopped
@@ -332,10 +346,21 @@ show_status:
 	ld	de,100
 	sbc	hl,de
 	jr	nc,.http
+	ld	hl,s_cut		; then what the reader should know
 	ld	a,(page_cut)
+	ld	b,a
+	ld	a,(too_long)
+	or	b
+	jr	nz,.note
+	ld	hl,s_form
+	ld	a,(has_form)
+	or	a
+	jr	nz,.note
+	ld	hl,s_newer
+	ld	a,(newer)
 	or	a
 	jr	z,.addr
-	ld	hl,s_cut
+.note:
 	call	scr_print
 	jr	.count
 .http:
@@ -350,7 +375,7 @@ show_status:
 	ld	b,STATUS_TEXT
 	call	print_max
 .count:
-	ld	hl,(pages)
+	ld	hl,(screens)
 	ld	a,h
 	or	l
 	ret	z
@@ -361,7 +386,7 @@ show_status:
 	call	print_small
 	ld	a,'/'
 	call	scr_putc
-	ld	hl,(pages)
+	ld	hl,(screens)
 	; fall through
 
 ; print_small: HL as a number, 255 at most (shown as 255).
@@ -420,161 +445,106 @@ skip0:
 	jr	nz,skip0
 	ret
 
-; ---- The page: raw text, 32 columns ----------------------------------------
-; M2d's view: LF (or CR, or CR LF) ends a line, tab is a space, other
-; control bytes are skipped, bytes 128-255 show as '?', lines wrap at 32.
+; ---- The page ------------------------------------------------------------
 
-; show_page: the frame and screen page_no of the page, then the status.
-show_page:
-	ld	a,A_PAGE
-	call	scr_cls
-	ld	hl,s_title
-	call	draw_title
-	ld	bc,0*256+16		; the help hint, before the stripes
-	ld	a,A_HINT
-	ld	hl,s_keyhint
-	call	text_at
-	ld	hl,page_buf
-	ld	bc,(page_no)
-.skip:
-	ld	a,b
-	or	c
-	jr	z,.draw
-	push	bc
-	xor	a
-	call	layout
-	pop	bc
-	dec	bc
-	jr	.skip
-.draw:
-	ld	a,A_PAGE
-	ld	(scr_attr),a
-	ld	a,1
-	call	layout
-	jp	show_status
-
-; count_pages: pages = how many screens the page fills (at least 1).
-count_pages:
+; new_page: a page has arrived (page_len bytes): read its header and find
+; where each screen starts.
+new_page:
 	ld	hl,(page_len)
 	ld	de,page_buf
 	add	hl,de
 	ld	(page_end),hl
 	ld	hl,0
-	ld	(pages),hl
-	ld	hl,page_buf
+	ld	(page_no),hl
+	call	parse_header
+	jp	render_measure
+
+; show_page: the title bar and screen page_no of the page, then the status.
+show_page:
+	ld	a,A_PAGE
+	call	scr_cls
+	call	make_title
+	ld	hl,title_disp
+	call	draw_title
+	ld	bc,0*256+17		; the help hint, before the stripes
+	ld	a,A_HINT
+	ld	hl,s_keyhint
+	call	text_at
+	ld	hl,(page_no)
+	call	render_draw
+	jp	show_status
+
+; make_title: title_disp = the page's title (in its case, up to 15
+; characters), or the browser's name.
+make_title:
+	ld	hl,s_title
+	ld	a,(is_page)
+	or	a
+	jr	z,.copy
+	ld	a,(title_buf)
+	or	a
+	jr	z,.copy
+	ld	hl,title_buf
+.copy:
+	ld	de,title_disp
+	ld	b,15
 .l:
-	push	hl
-	ld	hl,(pages)
-	inc	hl
-	ld	(pages),hl
-	pop	hl
-	xor	a
-	call	layout
-	ld	de,(page_end)
+	ld	a,(hl)
 	or	a
-	sbc	hl,de
-	add	hl,de
-	jr	c,.l
+	jr	z,.end
+	call	to_case
+	ld	(de),a
+	inc	hl
+	inc	de
+	djnz	.l
+.end:
+	xor	a
+	ld	(de),a
 	ret
 
-; layout: one screen from HL (in the page buffer); A = 1 draws it, 0 only
-; measures. Out: HL = where the next screen starts (page_end at the end).
-; Every screen takes at least one byte, so a loop over screens ends.
-layout:
-	ld	(lo_draw),a
-	ld	(lo_ptr),hl
-	xor	a
-	ld	(lo_row),a
-	ld	(lo_col),a
-.next:
-	ld	hl,(lo_ptr)
-	ld	de,(page_end)
-	or	a
-	sbc	hl,de
-	add	hl,de
-	ret	nc			; the end of the page
-	ld	a,(hl)
-	inc	hl
-	cp	10
-	jr	z,.newline
-	cp	13
-	jr	z,.cr
-	cp	9
-	jr	nz,.char
-	ld	a,' '
-.char:
-	cp	32
-	jr	c,.skip
-	cp	128
-	jr	c,.put
-	ld	a,'?'
-.put:
-	ld	c,a
-	ld	a,(lo_col)
-	cp	32
-	jr	c,.fits
-	call	.down			; wrap: this byte starts the next row
-	ret	z			; screen full: it starts the next screen
-	ld	hl,(lo_ptr)
-	inc	hl
-.fits:
-	ld	(lo_ptr),hl
-	ld	a,(lo_draw)
-	or	a
-	jr	z,.counted
-	ld	a,(lo_col)
-	or	a
-	jr	nz,.at
-	push	bc
-	ld	a,(lo_row)
-	add	a,PAGE_TOP
-	ld	b,a
-	ld	c,0
-	call	scr_at
-	pop	bc
-.at:
-	ld	a,c
-	call	scr_putc
-.counted:
-	ld	hl,lo_col
-	inc	(hl)
-	jr	.next
-.skip:
-	ld	(lo_ptr),hl
-	jr	.next
-.cr:						; CR LF is one line end, CR alone too
-	ld	(lo_ptr),hl
-	ld	de,(page_end)
-	or	a
-	sbc	hl,de
-	add	hl,de
-	jr	nc,.cr_end
-	ld	a,(hl)
-	cp	10
-	jr	z,.next			; the LF ends the line
-.cr_end:
-.newline:
-	ld	(lo_ptr),hl
-	call	.down
-	ret	z
-	jr	.next
-; .down: the next row; Z (and HL = lo_ptr) when the screen is full.
-.down:
-	xor	a
-	ld	(lo_col),a
-	ld	a,(lo_row)
+; print_dec16: HL as a decimal number, no leading zeros.
+print_dec16:
+	ld	b,0			; 1 once a digit is shown
+	ld	de,10000
+	call	.digit
+	ld	de,1000
+	call	.digit
+	ld	de,100
+	call	.digit
+	ld	de,10
+	call	.digit
+	ld	a,l
+	add	a,'0'
+	jp	scr_putc
+.digit:
+	ld	a,'0'-1
+.sub:
 	inc	a
-	ld	(lo_row),a
-	ld	hl,(lo_ptr)
-	cp	PAGE_ROWS
-	ret
+	or	a
+	sbc	hl,de
+	jr	nc,.sub
+	add	hl,de
+	cp	'0'
+	jr	nz,.show
+	inc	b
+	dec	b
+	ret	z			; a leading zero
+.show:
+	ld	b,1
+	jp	scr_putc		; keeps BC DE HL
 
+	include	"render.asm"
 	include	"url.asm"
 
 ; ---- Text ------------------------------------------------------------------
 
 s_title:	db	"zx-vvv",0
-s_keyhint:	db	"K: keys",0
+s_keyhint:	db	"K: help",0
+s_pagesize:	db	"Page: ",0
+s_bytes:	db	" bytes, ",0
+s_free:		db	" free",0
+s_form:		db	"Form not shown (yet)",0
+s_newer:	db	"Newer 8TML version",0
 help_lines:
 		db	2,1,A_MSG,"Keys",0
 		db	4,1,A_ITEM,"G",0,	4,8,A_BODY,"go to an address",0
@@ -582,7 +552,7 @@ help_lines:
 		db	6,1,A_ITEM,"H",0,	6,8,A_BODY,"home (T8wn)",0
 		db	7,1,A_ITEM,"N",0,	7,8,A_BODY,"next screen",0
 		db	8,1,A_ITEM,"M",0,	8,8,A_BODY,"previous screen",0
-		db	9,1,A_ITEM,"K or ?",0,	9,8,A_BODY,"these keys",0
+		db	9,1,A_ITEM,"K or ?",0,	9,8,A_BODY,"this help",0
 		db	10,1,A_ITEM,"Q",0,	10,8,A_BODY,"back to the menu",0
 		db	12,1,A_ITEM,"SPACE",0,	12,8,A_BODY,"stops a page loading",0
 		db	14,1,A_MSG,"Typing an address",0
@@ -622,13 +592,8 @@ app_sp:		dw	0
 page_len:	dw	0
 page_end:	dw	page_buf
 page_no:	dw	0
-pages:		dw	0
 page_cut:	db	0
 http_status:	dw	0
-lo_ptr:		dw	0
-lo_row:		db	0
-lo_col:		db	0
-lo_draw:	db	0
 
 req:		db	0x01,'G',HTTP_ASCII	; http service, G
 		dw	PAGE_MAX
@@ -636,10 +601,25 @@ code_end:					; the buffers aren't loaded from tape
 req_url:	ds	URL_MAX+1+10+40		; (after req) url 0 accept 0 refuse
 cur_url:	ds	URL_MAX+1		; the page's final address ("" = none)
 input:		ds	INPUT_MAX+1
-rxbuf:		ds	RXBUF_SIZE
-url_tmp:	ds	URL_TMP_SIZE
+; Used while finding and fetching an address, then free while a page is
+; laid out: the renderer's buffers share their memory.
+url_tmp:	ds	URL_TMP_SIZE		; url.asm
 url_out:	ds	URL_OUT_SIZE
+win:		ds	WIN_SIZE+1		; the renderer's text window...
+rxbuf		equ	win			; ... or a reply (RXBUF_SIZE)
+url_buf		equ	url_tmp			; a link's address (256)
+label_buf	equ	url_out			; a link's text (256)
+	ASSERT	RXBUF_SIZE <= WIN_SIZE+1 && URL_TMP_SIZE >= 256 && URL_OUT_SIZE >= 256
+tagbuf:		ds	16
+cur_cells:	ds	2*WIDTH
+pend_cells:	ds	2*WIDTH
+word_cells:	ds	2*(WIDTH+2)
+rowbuf:		ds	2*WIDTH
+title_buf:	ds	32
+title_disp:	ds	16
+snaps:		ds	MAX_SCREENS*SNAP_SIZE
 page_buf:					; the page, up to APP_END
 PAGE_MAX	equ	APP_END - page_buf
+linebuf		equ	0x5B00			; the printer buffer: a source line (256-aligned)
 
 	SAVEBIN	"vvv.bin", vvv, code_end - vvv

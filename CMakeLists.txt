@@ -80,7 +80,7 @@ if(SJASMPLUS)
         COMMAND ${SJASMPLUS} --nologo --inc=${CMAKE_SOURCE_DIR}/sdk --inc=${VVV_DIR}/zx
                 ${VVV_DIR}/zx/vvv.asm
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-        DEPENDS ${VVV_DIR}/zx/vvv.asm ${VVV_DIR}/zx/url.asm ${ZX_LIB_SRCS}
+        DEPENDS ${VVV_DIR}/zx/vvv.asm ${VVV_DIR}/zx/url.asm ${VVV_DIR}/zx/render.asm ${ZX_LIB_SRCS}
         COMMENT "Assembling apps/zx-vvv -> vvv.bin"
         VERBATIM)
     add_custom_command(

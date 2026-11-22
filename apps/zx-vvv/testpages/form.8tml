@@ -1,0 +1,13 @@
+---
+8tml: 1
+title: Guestbook
+case: mixed
+---
+# Sign the book
+
+:::form post /sign
+? text name max=20 Your name
+? submit go Sign
+:::
+
+Text after the form.

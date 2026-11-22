@@ -1,0 +1,20 @@
+Plain, emphasis, strong, 5 * 3 =
+15, abc, unclosed emphasis
+
+Tags: yellow, bold, rev, blue,
+<3 and a < b and <hello> stay,
+</br> stays, x
+y and mid goes.
+
+Entities: <tag> & "q" AB ?
+&bogus; & & alone &#;  x.
+
+Escapes: * [ < \ \a _ and a
+backtick £ here.
+
+Links: first link, empty.8tml,
+emph link, [no paren] here,
+[nested.
+
+A link split over lines and text
+with tag.

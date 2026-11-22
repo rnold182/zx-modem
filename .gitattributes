@@ -4,3 +4,5 @@
 *.wav binary
 *.zip binary
 *.pdf binary
+# Test pages are inputs byte for byte (hostile.8tml has CR, NUL and raw UTF-8)
+apps/zx-vvv/testpages/*.8tml -text

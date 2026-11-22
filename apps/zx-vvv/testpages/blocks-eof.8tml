@@ -1,0 +1,15 @@
+---
+8tml: 1
+title: Open at the end
+---
+Before an unknown block.
+
+:::screen 40x25
+hidden content
+:::
+
+:::
+A stray fence line above is ignored.
+
+```
+pre block never closed

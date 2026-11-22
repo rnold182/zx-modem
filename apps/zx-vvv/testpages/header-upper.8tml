@@ -1,0 +1,11 @@
+---
+# a comment in the header
+8tml: 1
+title: Upper case by default
+unknown: ignored
+---
+Text is shown in upper case unless the page says case: mixed.
+
+```
+pre is upper case too
+```

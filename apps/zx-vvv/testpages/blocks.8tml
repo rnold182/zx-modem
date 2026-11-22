@@ -1,0 +1,44 @@
+---
+8tml: 1
+title: Blocks
+---
+# Heading one
+## Heading two
+### Heading three
+#### Deep heading becomes three
+#Not a heading without a space
+
+A paragraph that runs over
+several source lines and is joined
+with single spaces into one block that wraps at thirty-two columns.
+
+
+
+Three blank lines above count as one.
+---
+
+* A bullet item
+- A dash item that is long enough to wrap onto a second line with a hanging indent
+  and a continuation line indented by two spaces.
+* Last bullet
+Text right after a list starts a paragraph.
+
+1. One
+2. Two
+4. Four shows three
+
+5. Five
+5. Five again shows six
+1984\. was a good year.
+
+> A quote over
+> two lines, joined and wrapped like a paragraph with an indent of two.
+>
+> After an empty quote line.
+Plain line after the quote.
+
+```
+Preformatted text is shown exactly as written, cut at thirty-two columns.
+  *not emphasis* <yellow>not a tag</>
+```
+After the pre block.

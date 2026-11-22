@@ -1,0 +1,30 @@
+---
+8tml: 1
+title: Wrapping
+case: mixed
+---
+Supercalifragilisticexpialidociousandthensomemoreletters is a long word.
+
+ABCDEFGHIJKLMNOPQRSTUVWXYZ012345 exactly thirty-two.
+
+ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 two lines.
+
+Runs    of    spaces    are    kept    inside    lines    of    text.
+
+Keep&nbsp;these&nbsp;words&nbsp;together&nbsp;please once more.
+
+<center>Centred text in a paragraph that is long enough to wrap.
+
+<CENTER>   Upper-case center tag.
+
+* <center>A centred list item
+
+A hard break here\
+and the next line.\
+Two hard breaks.
+
+Line one<br>line two<BR>
+line three after br.
+
+Trailing spaces before a break   \
+done.

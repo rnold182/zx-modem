@@ -1,0 +1,17 @@
+---
+8tml: 1
+title: Inline
+case: mixed
+---
+Plain, *emphasis*, **strong**, 5 * 3 = 15, a*b*c, *unclosed emphasis
+
+Tags: <yellow>yellow</>, <b>bold</b>, <rev>rev</rev>, <Lightblue>blue</>, <3 and a < b and <hello> stay, </br> stays, x<br>y and <center>mid</center> goes.
+
+Entities: &lt;tag&gt; &amp; &quot;q&quot; &#65;&#66; &#200; &bogus; &AMP; & alone &#; &nbsp;x.
+
+Escapes: \* \[ \< \\ \a \_ and a backtick ` here.
+
+Links: [first link](a.8tml), [](empty.8tml), [*emph link*](b.8tml), [no paren] here, [[nested](c.8tml).
+
+A link [split
+over lines](d.8tml) and [text with <b>tag</b>](e.8tml).

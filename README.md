@@ -12,7 +12,8 @@ itself, web fetches from BASIC, and an 8TML browser in progress
 
 **Status:** the modem (Phase 1) works on a real 48K: two-way tape link, menu,
 Wi-Fi setup with saved networks, HTTP and HTTPS fetches for BASIC programs.
-The browser, zx-vvv, fetches pages; its renderer is next.
+The browser, zx-vvv, fetches 8TML pages and lays them out itself; links
+and colours are next.
 
 ## Screenshots
 
@@ -104,13 +105,13 @@ the menu. A longer example: [`zx/basic/fetchdemo.asm`](zx/basic/fetchdemo.asm).
 plain ASCII pages, readable on 8-bit machines, a lot like Markdown. **zx-vvv**
 is the official ZX Spectrum port of VVV, its reference browser, running
 on the 48K through this modem ([`apps/zx-vvv/`](apps/zx-vvv/)). Today it
-fetches pages and shows them as raw text; the renderer is next.
+fetches pages and lays them out itself, screen for screen the same as the
+8TML reference tool; colours, fonts and following links are next.
 
-- **The Spectrum is the browser:** it resolves links and decides what to
-  fetch and refuse, and it will parse the page itself (headings,
-  paragraphs, lists, quotes, preformatted text, emphasis, colour tags,
-  links) and lay it out in 32 columns with Spectrum colours, bold and
-  italic fonts.
+- **The Spectrum is the browser:** it resolves links, decides what to
+  fetch and refuse, and parses the page itself (headings, paragraphs,
+  lists, quotes, preformatted text, emphasis, colour tags, links), laid
+  out in 32 columns; Spectrum colours and bold and italic fonts come next.
 - **Links and history:** cursor keys move between links, ENTER follows one,
   B goes back; G types an address.
 - **The modem stays a modem:** a general [http service](docs/link-protocol.md#64-http-0x01)

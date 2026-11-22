@@ -1,0 +1,35 @@
+Supercalifragilisticexpialidocio
+usandthensomemoreletters is a
+long word.
+
+ABCDEFGHIJKLMNOPQRSTUVWXYZ012345
+exactly thirty-two.
+
+ABCDEFGHIJKLMNOPQRSTUVWXYZ012345
+6789ABCDEFGHIJKLMNOPQRSTUVWXYZ01
+23456789 two lines.
+
+Runs    of    spaces    are
+kept    inside    lines    of
+text.
+
+Keep these words together please
+once more.
+
+Centred text in a paragraph that
+    is long enough to wrap.
+
+     Upper-case center tag.
+
+*      A centred list item
+
+A hard break here
+and the next line.
+Two hard breaks.
+
+Line one
+line two
+line three after br.
+
+Trailing spaces before a break
+done.

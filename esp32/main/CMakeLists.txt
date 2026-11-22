@@ -40,7 +40,7 @@ add_custom_command(
     OUTPUT ${VVV_BIN}
     COMMAND ${SJASMPLUS} --nologo --inc=${SDK_DIR} --inc=${VVV_DIR} ${VVV_DIR}/vvv.asm
     WORKING_DIRECTORY ${ZX_OUT}
-    DEPENDS ${VVV_DIR}/vvv.asm ${VVV_DIR}/url.asm ${ZX_LIB_SRCS}
+    DEPENDS ${VVV_DIR}/vvv.asm ${VVV_DIR}/url.asm ${VVV_DIR}/render.asm ${ZX_LIB_SRCS}
     COMMENT "Assembling apps/zx-vvv -> vvv.bin"
     VERBATIM)
 add_custom_target(zxprograms DEPENDS ${MENU_TAP} ${WIFI_BIN} ${VVV_BIN})
