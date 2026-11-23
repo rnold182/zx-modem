@@ -32,7 +32,8 @@ the Spectrum.
 |---|---|
 | 0x4000-0x5AFF | screen; the app owns it while it runs (the menu redraws after) |
 | 0x5B00-0x7FFF | system variables, BASIC, the machine stack (below 32768) |
-| 0x8000-0x9FFF | the menu, its API table and buffers: **don't touch** |
+| 0x8000-0x8FFF | the menu, its API table and buffers: **don't touch** |
+| 0x9000-0x9FFF | spare (`APP_SPARE`-`APP_SPARE_END`): **the app's** for buffers while it runs (4 KB); not loaded from tape, and gone when the app returns |
 | 0xA000-0xFF57 | **the app**: code, data, buffers (about 24 KB) |
 | 0xFF58-0xFFFF | user-defined graphics |
 

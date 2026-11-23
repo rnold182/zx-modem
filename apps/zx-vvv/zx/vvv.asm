@@ -1304,8 +1304,22 @@ req:		db	0x01,'G',HTTP_ASCII	; http service, G
 		dw	PAGE_MAX
 code_end:					; the buffers aren't loaded from tape
 req_url:	ds	URL_MAX+1+10+40		; (after req) url 0 accept 0 refuse
-cur_url:	ds	URL_MAX+1		; the page's final address ("" = none)
 input:		ds	INPUT_MAX+1
+tagbuf:		ds	16
+cur_cells:	ds	CELL*WIDTH
+pend_cells:	ds	CELL*WIDTH
+word_cells:	ds	CELL*(WIDTH+2)
+rowbuf:		ds	CELL*WIDTH
+title_buf:	ds	32
+title_disp:	ds	16
+page_buf:					; the page, up to APP_END
+PAGE_MAX	equ	APP_END - page_buf
+linebuf		equ	0x5B00			; the printer buffer: a source line (256-aligned)
+
+; The menu's spare area (APP_SPARE, docs/app-api.md 2): the big buffers, so
+; the page buffer above gets 4 KB more. Not loaded, gone when zx-vvv quits.
+	org	APP_SPARE
+cur_url:	ds	URL_MAX+1		; the page's final address ("" = none)
 ; Used while finding and fetching an address, then free while a page is
 ; laid out: the renderer's buffers share their memory.
 url_tmp:	ds	URL_TMP_SIZE		; url.asm
@@ -1315,20 +1329,11 @@ rxbuf		equ	win			; ... or a reply (RXBUF_SIZE)
 url_buf		equ	url_tmp			; a link's address (256)
 label_buf	equ	url_out			; a link's text (256)
 	ASSERT	RXBUF_SIZE <= WIN_SIZE+1 && URL_TMP_SIZE >= 256 && URL_OUT_SIZE >= 256
-tagbuf:		ds	16
-cur_cells:	ds	CELL*WIDTH
-pend_cells:	ds	CELL*WIDTH
-word_cells:	ds	CELL*(WIDTH+2)
-rowbuf:		ds	CELL*WIDTH
 runs:		ds	MAX_RUNS*5		; the screen's link pieces
 sel_save:	ds	256			; the focused link's attributes
 found_url:	ds	256			; the focused link's address
 hist_buf:	ds	HIST_SIZE
-title_buf:	ds	32
-title_disp:	ds	16
 snaps:		ds	MAX_SCREENS*SNAP_SIZE
-page_buf:					; the page, up to APP_END
-PAGE_MAX	equ	APP_END - page_buf
-linebuf		equ	0x5B00			; the printer buffer: a source line (256-aligned)
+	ASSERT	$ <= APP_SPARE_END
 
 	SAVEBIN	"vvv.bin", vvv, code_end - vvv

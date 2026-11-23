@@ -18,7 +18,8 @@ stylesheets (M7), forms (M8).
 - **App 2, kind 1:** the menu loads it at 0xA000 and `CALL`s it; Q goes
   back to the menu. It borrows the menu's screen, link and text-entry
   routines through the API table (`docs/app-api.md`), so it's about 8 KB
-  on tape and leaves ~11.6 KB for the page.
+  on tape and leaves ~15.3 KB for the page (its big buffers sit in the
+  menu's spare area, 0x9000-0x9FFF).
 - **The Spectrum is the browser.** Everything 8TML-specific happens here:
   resolving links (`zx/url.asm`, RFC 3986), `index.8tml` for directories,
   dropping `#fragments`, asking for `text/8tml`, refusing `text/html` and
@@ -53,7 +54,7 @@ screen, as the 8TML spec asks. Forms are skipped until M8.
 
 **Colours** follow the reference's defaults through a hand-tuned ZX table
 (`CLAUDE.md` §6.6): text white, `#` headings reversed, emphasis and strong
-bright white, links bright blue, preformatted text bright green. A focused
+bright white, links bright cyan, preformatted text bright green. A focused
 link is reversed (the spec's `link-sel`).
 
 ## How the renderer works

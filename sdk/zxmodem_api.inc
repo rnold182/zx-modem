@@ -55,3 +55,5 @@ LINK_ERR_DATA		equ	4	; tape error in a data block
 ; ---- Memory for apps ----------------------------------------------------------
 APP_ADDR	equ	0xA000		; apps load and run here (CALLed; RET = back to menu)
 APP_END		equ	0xFF58		; up to the UDGs; the stack is below 32768
+APP_SPARE	equ	0x9000		; 0x9000-0x9FFF: free for the app while it runs
+APP_SPARE_END	equ	0xA000		;   (the menu stays below; not loaded, not kept)

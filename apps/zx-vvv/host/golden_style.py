@@ -29,8 +29,8 @@ PAGES = os.path.join(HERE, '..', 'testpages')
 
 # 8TML colour -> (ZX ink, bright): the hand-tuned table of CLAUDE.md 6.6
 ZX = {
-    'black': (0, 0), 'blue': (1, 0), 'lightblue': (1, 1), 'red': (2, 0), 'pink': (2, 1),
-    'purple': (3, 0), 'green': (4, 0), 'lightgreen': (4, 1), 'cyan': (5, 1), 'yellow': (6, 1),
+    'black': (0, 0), 'blue': (1, 0), 'lightblue': (5, 1), 'red': (2, 0), 'pink': (2, 1),
+    'purple': (3, 0), 'green': (4, 0), 'lightgreen': (4, 1), 'cyan': (5, 0), 'yellow': (6, 1),
     'orange': (6, 0), 'brown': (2, 0), 'darkgrey': (7, 0), 'grey': (7, 0), 'lightgrey': (7, 0),
     'white': (7, 1),
 }

@@ -50,7 +50,7 @@ C_H2		equ	0x47		; white -> bright white (h2, h3)
 C_QUOTE		equ	0x07		; grey -> white
 C_EM		equ	0x47		; white
 C_STRONG	equ	0x47		; white
-C_LINK		equ	0x41		; lightblue -> bright blue
+C_LINK		equ	0x45		; lightblue -> bright cyan (blue on black is too dark)
 A_TEXT		equ	C_TEXT		; attributes of whole rows
 A_PRE		equ	0x44		; lightgreen -> bright green
 A_RULE		equ	0x07		; darkgrey -> white
@@ -2486,10 +2486,10 @@ entities:
 ; hand-tuned table of CLAUDE.md 6.6), 2 b/i/rev (1/2/3), 3 center, 4 br
 tag_names:
 		db	1,0x00,"black",0, 1,0x47,"white",0, 1,0x02,"red",0
-		db	1,0x45,"cyan",0, 1,0x03,"purple",0, 1,0x04,"green",0
+		db	1,0x05,"cyan",0, 1,0x03,"purple",0, 1,0x04,"green",0
 		db	1,0x01,"blue",0, 1,0x46,"yellow",0, 1,0x06,"orange",0
 		db	1,0x02,"brown",0, 1,0x42,"pink",0, 1,0x07,"darkgrey",0
-		db	1,0x07,"grey",0, 1,0x44,"lightgreen",0, 1,0x41,"lightblue",0
+		db	1,0x07,"grey",0, 1,0x44,"lightgreen",0, 1,0x45,"lightblue",0
 		db	1,0x07,"lightgrey",0
 		db	1,0x03,"magenta",0, 1,0x42,"lightred",0, 1,0x07,"gray",0
 		db	1,0x07,"darkgray",0, 1,0x07,"lightgray",0

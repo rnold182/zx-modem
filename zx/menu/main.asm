@@ -1001,7 +1001,7 @@ code_end:
 basic_req:	ds	4+255
 rxbuf:		ds	RXBUF_SIZE
 name_pool:	ds	MAX_APPS*25
-	ASSERT	$ <= sdk.APP_ADDR
+	ASSERT	$ <= sdk.APP_SPARE		; 0x9000-0x9FFF belongs to the running app
 
 
 ; ---- BASIC loader: 10 CLEAR 32767: LOAD ""CODE: RANDOMIZE USR 32768 ------------

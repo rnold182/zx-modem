@@ -387,9 +387,10 @@ Addresses (resolution, `index.8tml`, fragments, typed `host/path`) are done by t
 | `4000–57FF` | Screen bitmap |
 | `5800–5AFF` | Attributes (`FLASH, BRIGHT, PAPER[3], INK[3]` per cell) |
 | `5B00–7FFF` | System variables, BASIC, stack. Contended memory, so avoid placing code here. |
-| `8000–9FFF` | The ZX MODEM menu and its API table (the browser borrows its screen, link and text-entry routines) |
+| `8000–8FFF` | The ZX MODEM menu and its API table (the browser borrows its screen, link and text-entry routines); the menu stays below 0x9000 (build check) |
+| `9000–9FFF` | The menu's spare area, the running app's (`APP_SPARE`, decided 2026-11-23): zx-vvv's big buffers (address and fetch buffers, text window, link runs, focus save, history, 64 bookmarks) |
 | `A000–` | Browser code and data (~8 KB in M4: no font tables, glyphs are made from the ROM font while drawing), then its buffers (not loaded from tape; the fetch and renderer buffers share memory): 64 screen bookmarks, the screen's link runs, the focused link's saved attributes and address, a 512-byte history
-| `–FF57` | Raw page buffer: the rest, up to the UDGs (~11.6 KB in M4) |
+| `–FF57` | Raw page buffer: the rest, up to the UDGs (~15.3 KB since 2026-11-23) |
 | `5B00–5BFF` | The printer buffer: the renderer's source line buffer (256-aligned) |
 
 *Decided 2026-11-22: zx-vvv is a kind 1 app (loaded at 0xA000, returns to the menu), not a program replacing the menu. If the page buffer gets too small, a kind 2 program with its own link code is still possible.*
@@ -494,13 +495,13 @@ Addresses (resolution, `index.8tml`, fragments, typed `host/path`) are done by t
 |---|---|
 | black | 0 |
 | blue | 1 |
-| lightblue | 1+B |
+| lightblue | 5+B (was 1+B: blue on black is too dark on a real 48K, 2026-11-23) |
 | red | 2 |
 | pink / lightred | 2+B |
 | purple / magenta | 3 |
 | green | 4 |
 | lightgreen | 4+B |
-| cyan | 5+B |
+| cyan | 5 |
 | yellow | 6+B |
 | orange | 6 |
 | brown | 2 |
@@ -515,7 +516,7 @@ Addresses (resolution, `index.8tml`, fragments, typed `host/path`) are done by t
   - text: white
   - h1: bright white, reversed
   - h2/h3/em/strong: bright white
-  - link: bright blue (consider bright cyan; blue on black is dim)
+  - link: bright cyan (lightblue; bright blue was too dark on real hardware)
   - quote: white
   - pre: bright green
   - rule: white
