@@ -635,7 +635,7 @@ A response is a sequence of `header(0x90)` + optional `data(0x91)` pairs.
 
 **Details**
 - The **Spectrum** decides page vs plain text by checking the first line, as the spec requires. The ESP32 just sends the body.
-- **Chunk size:** 1024 bytes by default (tunable). Chunks limit the damage of a tape error; recover with `C n`.
+- **Chunk size:** every reply is **one chunk** (decided 2026-11-22; was 1024 bytes). Every block costs a ~2 s pilot, and without `C n` small chunks only add pilots. Revisit (smaller chunks + `C n`) only if tape errors show up in use.
 - **Gaps:** the ESP32 waits ≥100 ms after each header block and ≥200 ms after each data block, so the Spectrum can process them. Tune these.
 - **History:** the Spectrum keeps a history of `url-info` URLs. BACK sends `G <absolute url>`.
 

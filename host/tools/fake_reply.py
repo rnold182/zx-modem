@@ -34,8 +34,8 @@ def block(flag, payload):
     return struct.pack('<H', len(data) + 1) + data + bytes([x])
 
 
-def response(rtype, data, field45=None, http=0, chunk=1024):
-    """One response, in chunks of up to 1024 bytes like the firmware."""
+def response(rtype, data, field45=None, http=0, chunk=0xFFFF):
+    """One response, chunked like the firmware: one chunk."""
     total = len(data) if field45 is None else field45
     out, off, idx = b'', 0, 0
     while True:

@@ -5,6 +5,7 @@
  * block pairs. Tapes for the PLAY button go through the same queue, so the
  * transmitter only ever has one user.
  */
+#include <stdlib.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -19,7 +20,7 @@
 #include "link.h"
 
 #define REQ_MAX       322           /* flag + 320 payload + checksum */
-#define CHUNK_MAX    1024
+#define CHUNK_MAX    0xFFFF        /* a reply is one chunk (the header's 16-bit length) */
 #define ECHO_GUARD_MS 300           /* receiver stays off a little after TX */
 
 enum { SVC_SYSTEM = 0x00, SVC_HTTP = 0x01, SVC_BASIC = 0x03 };
@@ -51,11 +52,20 @@ static const char *TAG = "link";
 static QueueHandle_t s_jobs;
 static volatile bool s_sending;
 
+/* One tape block. Every block costs a ~2 s pilot, so replies use few,
+ * large blocks; tapeio_tx_block returns once the block has gone out. */
 static void send_block(uint8_t flag, const uint8_t *p, size_t n)
 {
-    static uint8_t blk[CHUNK_MAX + 2];
-    size_t len = tape_make_block(flag, p, n, blk, sizeof blk);
+    uint8_t *blk = malloc(n + 2);
+    size_t len;
+
+    if (!blk) {
+        ESP_LOGE(TAG, "no memory for a %u-byte block", (unsigned)n);
+        return;
+    }
+    len = tape_make_block(flag, p, n, blk, n + 2);
     ESP_ERROR_CHECK(tapeio_tx_block(blk, len, &s_reply_timing));
+    free(blk);
 }
 
 /* field45 goes into header bytes 4-5: the total length, or for an overlay
@@ -63,11 +73,15 @@ static void send_block(uint8_t flag, const uint8_t *p, size_t n)
 void link_send_ex(uint8_t type, const uint8_t *data, size_t len,
                   uint16_t http, uint16_t field45, uint8_t flags)
 {
+    /* Every block costs a ~2 s pilot, so a reply goes as one chunk: a header
+     * and one data block. (No re-send command yet, so smaller chunks would
+     * only add pilots; revisit if tape errors show up.) */
+    size_t chunk = CHUNK_MAX;
     size_t off = 0;
     uint8_t idx = 0;
 
     do {
-        size_t n = len - off > CHUNK_MAX ? CHUNK_MAX : len - off;
+        size_t n = len - off > chunk ? chunk : len - off;
         size_t total = field45;
         uint8_t hdr[10] = {
             type, (uint8_t)((off + n == len ? FINAL : 0) | flags),

@@ -161,9 +161,12 @@ when its length is 0. Header (10 bytes):
 
 ### 5.3 Chunking
 
-Data goes in chunks of at most 1024 bytes, so a tape error costs one chunk.
-The client appends chunks until it sees the final flag. *(planned: a
-re-send command for a chunk after a tape error.)*
+The modem chooses the chunk size; the client appends chunks until it sees
+the final flag, so it must accept any chunk that fits its buffer. Every
+block costs a ~2 s pilot (§2.1), so the modem sends every reply as one
+chunk (firmware 0.7; 1024-byte chunks before). Smaller chunks would only
+pay off with a re-send command for a chunk after a tape error *(not
+planned until tape errors show up in use)*.
 
 ## 6. Services
 
