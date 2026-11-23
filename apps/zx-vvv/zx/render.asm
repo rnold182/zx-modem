@@ -43,17 +43,9 @@ MODE_FIND	equ	2		; find link find_no's address
 MODE_LIST	equ	3		; the link list (L)
 NUM_MAX		equ	10		; digits of a list number
 
-; Role colours: the reference defaults, as ZX ink + BRIGHT (CLAUDE.md 6.6)
-C_TEXT		equ	0x07		; lightgrey -> white
-C_H1		equ	0x47		; white (reversed)
-C_H2		equ	0x47		; white -> bright white (h2, h3)
-C_QUOTE		equ	0x07		; grey -> white
-C_EM		equ	0x47		; white
-C_STRONG	equ	0x47		; white
-C_LINK		equ	0x45		; lightblue -> bright cyan (blue on black is too dark)
-A_TEXT		equ	C_TEXT		; attributes of whole rows
-A_PRE		equ	0x44		; lightgreen -> bright green
-A_RULE		equ	0x07		; darkgrey -> white
+; Colours and style words come from the stylesheet cascade (style.asm):
+; role_style, mk_attr, and the attributes att_plain, att_text, att_pre,
+; att_rule it works out for whole rows.
 
 ; Line kinds (classify)
 K_TEXT		equ	0
@@ -82,6 +74,7 @@ parse_header:
 	ld	(newer),a
 	ld	(has_form),a
 	ld	(title_buf),a
+	ld	(hd_stylelen),a
 	inc	a
 	ld	(upper),a
 	ld	(hd_first),a
@@ -161,7 +154,7 @@ parse_header:
 	ret	nz			; plain text after all
 	ld	de,w_title
 	call	hd_key_is
-	jr	nz,.case
+	jp	nz,.style
 	ld	hl,(hd_v)		; title: up to 31 characters
 	ld	a,(hd_vlen)
 	cp	32
@@ -177,6 +170,15 @@ parse_header:
 .t0:
 	xor	a
 	ld	(de),a
+	jp	.next
+.style:
+	ld	de,w_style		; the page's stylesheet: kept for styles_fetch
+	call	hd_key_is
+	jr	nz,.case
+	ld	hl,(hd_v)
+	ld	(hd_style),hl
+	ld	a,(hd_vlen)
+	ld	(hd_stylelen),a
 	jp	.next
 .case:
 	ld	de,w_case
@@ -1002,7 +1004,10 @@ render_plain:
 .n:
 	ld	(pl_n),a
 	ld	hl,(pl_p)
-	ld	c,A_TEXT
+	push	af
+	ld	a,(att_text)
+	ld	c,a
+	pop	af
 	call	row_text
 	ld	a,(pl_n)
 	ld	e,a
@@ -1053,10 +1058,12 @@ render_body:
 	call	block_begin
 	ld	hl,rowbuf
 	ld	b,WIDTH
+	ld	a,(att_rule)
+	ld	c,a
 .r:
 	ld	(hl),'-'
 	inc	hl
-	ld	(hl),A_RULE
+	ld	(hl),c
 	inc	hl
 	ld	(hl),0
 	inc	hl
@@ -1081,7 +1088,10 @@ render_body:
 	ld	a,WIDTH
 .pc:
 	ld	hl,linebuf
-	ld	c,A_PRE
+	push	af
+	ld	a,(att_pre)
+	ld	c,a
+	pop	af
 	call	row_text
 	jr	.pl
 .fence:
@@ -1134,20 +1144,13 @@ text_block:
 	ld	(bk_indent),a
 	ld	(bk_mlen),a
 	ld	(bk_center),a
-	ld	(bk_rev),a
 	ld	(pr_head),a
 	ld	a,(k_kind)
 	ld	(pr_kind),a
 	cp	K_HEAD
 	jr	nz,.bul
 	ld	(pr_head),a		; no continuation lines
-	ld	a,(k_level)
-	dec	a
-	ld	a,C_H2
-	jr	nz,.attr
-	ld	a,1			; h1: reversed
-	ld	(bk_rev),a
-	ld	a,C_H1
+	ld	a,(k_level)		; h1-h3 are keys 1-3
 	jr	.attr
 .bul:
 	cp	K_BULLET
@@ -1158,22 +1161,26 @@ text_block:
 	ld	(bk_mlen),a
 	ld	a,2
 	ld	(bk_indent),a
-	ld	a,C_TEXT
+	ld	a,S_TEXT
 	jr	.attr
 .numb:
 	cp	K_NUM
 	jr	nz,.quo
 	call	list_number
-	ld	a,C_TEXT
+	ld	a,S_TEXT
 	jr	.attr
 .quo:
 	cp	K_QUOTE
-	ld	a,C_TEXT
+	ld	a,S_TEXT		; paragraphs and items: the text role
 	jr	nz,.attr
 	ld	a,2
 	ld	(bk_indent),a
-	ld	a,C_QUOTE
+	ld	a,S_QUOTE
 .attr:
+	call	role_style		; the block's role: colour and words
+	ld	a,e
+	ld	(bk_flags),a
+	ld	a,d
 	ld	(bk_col),a
 	ld	a,(bk_indent)
 	ld	b,a
@@ -1217,6 +1224,12 @@ text_block:
 	ld	(in_p),hl
 	jr	.sp
 .nocenter:
+	ld	a,(bk_flags)		; the role's "center" word centres it too
+	and	SF_CENTER
+	jr	z,.nocw
+	ld	a,1
+	ld	(bk_center),a
+.nocw:
 	; wrap and inline state
 	xor	a
 	ld	(cur_len),a
@@ -2085,49 +2098,62 @@ tag_name_kind:
 cell_style:
 	ld	a,(in_link)
 	or	a
-	ld	a,C_LINK
-	ld	b,0			; links aren't reversed
-	jr	nz,.col
-	ld	a,(bk_rev)
-	ld	b,a
-	ld	a,(bk_col)
-.col:
-	ld	c,a
-	ld	a,(in_i)
+	jr	z,.blk
+	ld	hl,(lk_cur)		; a link: link-sel when it is the focused one
+	ld	de,(sel_link)
 	or	a
-	jr	z,.nb1
-	ld	c,C_EM
-.nb1:
+	sbc	hl,de
+	ld	a,S_LINK
+	jr	nz,.lk
+	ld	a,S_LINKSEL
+.lk:
+	call	role_style
+	jr	.role
+.blk:
+	ld	a,(bk_col)
+	ld	d,a
+	ld	a,(bk_flags)
+	ld	e,a
+.role:
+	ld	a,d
+	ld	(cs_col),a
+	ld	a,e
+	ld	(cs_flags),a
+	ld	a,(in_i)		; i: em on top, b: strong on top
+	or	a
+	ld	a,S_EM
+	call	nz,.over
 	ld	a,(in_b)
 	or	a
-	jr	z,.nb2
-	ld	c,C_STRONG
-.nb2:
-	ld	a,(in_color)
-	inc	a
+	ld	a,S_STRONG
+	call	nz,.over
+	ld	a,(in_color)		; an inline colour
+	cp	NO_COLOUR
 	jr	z,.nc
-	dec	a
-	ld	c,a
+	ld	(cs_col),a
 .nc:
-	ld	a,(in_rev)
-	or	b
-	jr	z,.norev
-	ld	a,c			; reversed: black ink on the colour
-	and	0x07
-	add	a,a
-	add	a,a
-	add	a,a
-	ld	b,a
-	ld	a,c
-	and	0x40
-	or	b
+	ld	a,(in_rev)		; inline rev
+	or	a
+	jr	z,.nr
+	ld	hl,cs_flags
+	set	0,(hl)
+.nr:
+	ld	a,(cs_flags)
 	ld	c,a
-.norev:
+	ld	a,(cs_col)
+	call	mk_attr
+	ld	c,a
 	ld	a,(in_b)
 	or	a
 	jr	z,.nob
-	set	7,c
+	set	7,c			; bold rides in the FLASH bit
 .nob:
+	ld	a,(cs_flags)		; upper case: the role's word, or the page's
+	and	SF_UPPER
+	ld	d,a
+	ld	a,(upper)
+	or	d
+	ld	d,a
 	ld	a,(in_i)
 	rrca
 	and	0x80
@@ -2140,6 +2166,25 @@ cell_style:
 	or	0x80
 	ld	e,a
 	ret
+.over:					; em/strong: its colour if it has one;
+	add	a,a			; reverse and upper add
+	ld	l,a
+	ld	h,0
+	ld	de,sty
+	add	hl,de
+	ld	a,(hl)
+	cp	NO_COLOUR
+	jr	z,.keep
+	ld	(cs_col),a
+.keep:
+	inc	hl
+	ld	a,(hl)
+	and	SF_REV|SF_UPPER
+	ld	e,a
+	ld	a,(cs_flags)
+	or	e
+	ld	(cs_flags),a
+	ret
 
 ; wr_char: one character of the block's text. Keeps HL.
 wr_char:
@@ -2148,14 +2193,24 @@ wr_char:
 	jr	z,.brk
 	cp	' '
 	jr	z,.space
-	call	to_case
 	push	af
 	ld	a,(word_len)
 	call	cells_at
 	ld	de,word_cells
 	add	hl,de
-	call	cell_style
+	push	hl
+	call	cell_style		; (uses HL)
+	pop	hl
 	pop	af
+	inc	d			; this cell's case
+	dec	d
+	jr	z,.case
+	cp	'a'
+	jr	c,.case
+	cp	'z'+1
+	jr	nc,.case
+	sub	32
+.case:
 	or	b
 	ld	(hl),a
 	inc	hl
@@ -2186,7 +2241,9 @@ wr_char:
 	call	cells_at
 	ld	de,pend_cells
 	add	hl,de
-	call	cell_style
+	push	hl
+	call	cell_style		; (uses HL)
+	pop	hl
 	ld	(hl),' '
 	inc	hl
 	ld	(hl),c
@@ -2424,7 +2481,7 @@ put_plain:
 	push	hl
 	ld	(de),a
 	inc	de
-	ld	a,A_TEXT
+	ld	a,(att_plain)
 	ld	(de),a
 	inc	de
 	xor	a
@@ -2464,6 +2521,8 @@ to_lower:
 	add	a,32
 	ret
 
+	include	"style.asm"
+
 ; =============================================================================
 ; Words and tables
 
@@ -2473,6 +2532,7 @@ s_fence:	db	":::"
 w_8tml:		db	"8tml",0
 w_title:	db	"title",0
 w_case:		db	"case",0
+w_style:	db	"style",0
 w_mixed:	db	"mixed",0
 w_form:		db	"form",0
 w_center:	db	"<center>",0
@@ -2512,6 +2572,8 @@ hd_k:		dw	0
 hd_klen:	db	0
 hd_v:		dw	0
 hd_vlen:	db	0
+hd_style:	dw	0			; the header's style: value
+hd_stylelen:	db	0
 
 src_ptr:	dw	0
 line_start:	dw	0
@@ -2561,8 +2623,11 @@ pl_left:	db	0
 pl_n:		db	0
 pl_p:		dw	0
 
-bk_col:		db	0			; the role's colour, reversed?
-bk_rev:		db	0
+bk_col:		db	0			; the role's colour and words
+bk_flags:	db	0
+cs_col:		db	0			; cell_style's working colour and words
+cs_flags:	db	0
+sel_link:	dw	0xFFFF			; the focused link, drawn link-sel
 bk_indent:	db	0
 bk_center:	db	0
 bk_mlen:	db	0

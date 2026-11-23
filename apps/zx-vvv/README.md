@@ -10,8 +10,9 @@ lists (renumbered), quotes, preformatted text, rules, centring, line
 breaks, upper case unless the page says `case: mixed`. Inline markup shows
 in colour (Spectrum colours for the 8TML ones), with bold and italic
 glyphs made from the ROM font; links can be focused, followed and listed,
-and B goes back to the screen you were on. Next: robustness (M6),
-stylesheets (M7), forms (M8).
+and B goes back to the screen you were on. Stylesheets (M7) work:
+`site.8ss`, a page's own `style:` sheet and style keys in the header, with
+`zx.` overrides, as the 8TML cascade says. Next: forms (M8), robustness (M6).
 
 ## How it fits the modem
 
@@ -34,7 +35,7 @@ stylesheets (M7), forms (M8).
 
 | Key | |
 |---|---|
-| G | type an address (`t8wn.com` means `http://t8wn.com/index.8tml`) |
+| G | edit the address (up to 255 characters; it starts as the current one): CAPS+5/8 move, CAPS+0 deletes, CAPS+3 clears, ENTER goes, CAPS+1 cancels. `t8wn.com` means `http://t8wn.com/index.8tml` |
 | R | reload |
 | H | home: `https://t8wn.com/index.8tml` |
 | N / M | next / previous screen |
@@ -52,10 +53,18 @@ link's), or "Server says HTTP 404", "Page cut: too long", "Form not shown
 right. An error (no Wi-Fi, a refused type...) never replaces the page on
 screen, as the 8TML spec asks. Forms are skipped until M8.
 
-**Colours** follow the reference's defaults through a hand-tuned ZX table
-(`CLAUDE.md` §6.6): text white, `#` headings reversed, emphasis and strong
-bright white, links bright cyan, preformatted text bright green. A focused
-link is reversed (the spec's `link-sel`).
+**Colours** follow the stylesheets through a hand-tuned ZX table
+(`CLAUDE.md` §6.6). Without any sheet: text white, `#` headings reversed,
+emphasis and strong bright white, links bright cyan, preformatted text
+bright green, a focused link reversed (the spec's `link-sel`).
+
+**Stylesheets:** the first page of a site also fetches its `/site.8ss`
+(once: it is kept, missing or not, for the last 4 sites while zx-vvv runs),
+and a page with `style:` fetches that sheet (the last one is kept). Each
+costs one more request, about 6-8 s of tape. The page's background and
+border come from `bg` and `border`; on a coloured background the whole page
+takes the background's BRIGHT, so the background stays even (a bright
+yellow link on blue shows as plain yellow).
 
 ## How the renderer works
 
@@ -83,6 +92,7 @@ that link. Details: the comments in `zx/render.asm`.
 |---|---|
 | `zx/vvv.asm` | the browser (→ `vvv.bin`, embedded in the firmware as app 2): keys, focus, history, the link list |
 | `zx/render.asm` | the 8TML renderer: header, blocks, inline markup, colours and fonts, wrap, screen bookmarks, link runs |
+| `zx/style.asm` | stylesheets: 8SS parsing, the cascade, role colours as ZX attributes |
 | `zx/url.asm` | address rules in Z80 |
 | `zx/urltest.asm` | the Spectrum self-test of `url.asm` (not shipped) |
 | `host/url.c` | the C reference of the address rules, with the rules spelled out |
@@ -91,9 +101,11 @@ that link. Details: the comments in `zx/render.asm`.
 | `host/golden.py` | writes the layout golden files from the reference tool |
 | `host/golden_style.py` | writes the expected colours, fonts, focused link and link list |
 | `host/fusetest.ps1` | the renderer test in Fuse: every screen and every cell of every test page |
-| `host/navtest.ps1` | following links, Back to the same screen, the link list |
+| `host/navtest.ps1` | following links, Back to the same screen, the link list, an error keeping the page |
+| `host/edittest.ps1` | the address field: editing, scrolling, loading what was typed |
+| `host/testsite.py` | the network test site (M5): every case, to browse from the 48K |
 | `host/fusectl.ps1` | runs Fuse off-screen without taking the keyboard focus |
-| `testpages/` | test pages and their expected files (`.zx.txt`, `.expect.txt`, `.style.json`, `.sel.json`, `.links.txt`) |
+| `testpages/` | test pages and their expected files (`.zx.txt`, `.expect.txt`, `.style.json`, `.sel.json`, `.links.txt`); `styled/` has its own `site.8ss` and a page sheet |
 | `spec/` | the 8TML 1 spec package from its author, unzipped as-is (read-only). Not in the public repo: see `spec/GET-THE-SPEC.md` |
 | `docs/` | notes (`website-notes.md`: what t8wn.com adds, the live server) |
 
@@ -113,8 +125,19 @@ never take the keyboard focus: the PC stays usable while they run.
   against the ROM font, plain, bold and italic, and reads its colours). It
   checks the text of every screen, every cell's ink, paper, BRIGHT, bold
   and italic, screen 1 with the first link focused, and the L list.
-  `-Dir folder` runs pages from elsewhere (e.g. the spec's examples, which
-  aren't in the repo); `-Pages a.8tml,b.8tml` only some.
+  `-Dir folder` runs pages from elsewhere (`testpages/styled`, or the
+  spec's examples, which aren't in the repo); `-Pages a.8tml,b.8tml` only
+  some. The canned replies include the stylesheets zx-vvv asks for: the
+  folder's `site.8ss` (or a 404) after the first page, and each page's
+  `style:` sheet.
+- **The real network** (M5): `python apps/zx-vvv/host/testsite.py` on a PC on
+  the modem's network, then G and the address it prints. Its home page links
+  every case with the expected result: content types (shown or refused),
+  each kind of redirect and the 5-redirect limit, 404/500 bodies, UTF-8
+  accents, chunked and connection-close bodies, a page too big, a server
+  too slow, unreachable hosts, relative links of every form. It logs each
+  request and its answer. HTTPS: the live T8wn site.
+- **The address field:** `powershell -File apps/zx-vvv/host/edittest.ps1`.
 - **Links and history:** `powershell -File apps/zx-vvv/host/navtest.ps1`
   follows a link from screen 3, comes back with B to screen 3, then follows
   one from the L list and comes back again.

@@ -1,0 +1,17 @@
+   Centred by the site sheet
+
+A yellow h2
+
+An h3, green on the ZX, upper
+case
+
+Plain text with emphasis, strong
+and red words, a reversed one,
+and a link.
+
+  A quote in cyan.
+
+* An item, with a second link
+
+preformatted, white
+--------------------------------

@@ -464,7 +464,7 @@ Addresses (resolution, `index.8tml`, fragments, typed `host/path`) are done by t
 | N / M | Next / previous screen |
 | B | Back: the previous page, at the screen it was on |
 | L | The page's links, numbered (6/7, ENTER, N/M, L back) |
-| G | Go to a URL (line input) |
+| G | Edit the address: up to 255 characters, starts as the current one; CAPS+5/8 move, CAPS+0 delete, CAPS+3 clear, ENTER go, CAPS+1 cancel |
 | R | Reload |
 | H | Home |
 | ? | Help: the keys, page size and free buffer (title row: "?: help") |
@@ -520,6 +520,7 @@ Addresses (resolution, `index.8tml`, fragments, typed `host/path`) are done by t
   - quote: white
   - pre: bright green
   - rule: white
+- **On a coloured background** (M7) the whole page takes the background's BRIGHT, so the background stays even; bright inks then show without BRIGHT.
 - **Problem:** em, strong and h2 are all just bright white, so they're barely distinguishable from white text. That's why the bold and italic fonts matter (see the next paragraph).
 
 **Where the spec's `b`/`i` sit:**
@@ -768,9 +769,9 @@ ESP32 power: its own USB supply. Never from the Spectrum (the 48K's 7805 already
 | M2d | Browser skeleton | **Done 2026-11-22, proven on the real 48K.** Http service `G` returns `url-info` + body; the Spectrum resolves addresses (62/62 cases in C and in Z80) and pages raw text. Fuse offline mode via `fake_reply.py page:`/`httperr:` |
 | M3 | Renderer core | Page detection and plain-text fallback, the header (`#` comments, unclosed header, **default uppercase**, `case: mixed`), all blocks from §4.3 (incl. list renumbering, continuation lines, gap/no-gap spacing, `\` and `<br>` breaks, `<center>`), skipping of unknown and `:::form` blocks with a "has a form" notice, wrapping, preformatted cut, title and status bars, default role styles from §4.5, paging with snapshots, page-cut notice. **Text layout matches the `render -m zx --plain` golden files for the examples** (inline markup is stripped at this stage). **Done 2026-11-22, proven on the real 48K** (13 test pages + the spec examples + the live T8wn page match screen for screen; `apps/zx-vvv/host/fusetest.ps1`). Inline *text* handling (tags, entities, escapes, link text, emphasis flanking) moved here from M4; M4 keeps colours, fonts and links. Title row: page title + "?: help"; the help page shows the page size and free buffer |
 | M4 | Inline and links | Emphasis with the flanking rules, exact-name tags, the colour/flag state model, escapes and entities (incl. `&nbsp;` no-wrap), link buffering and limits, empty link text, non-http links shown but not followable, fragment-only links, bold/italic fonts, link table, focus, follow, back/history. **All golden files match, including `--links` order**. **Done 2026-11-22, proven on the real 48K**: inline colours through the ZX table, bold/italic glyphs made from the ROM font while drawing (cell = char with italic bit, attribute with bold in the FLASH bit, link id), link runs per screen (addresses found by re-reading from the screen's bookmark, no address table), focus 6/7, ENTER, B with a 512-byte history that returns to the same screen, L link list. Checked cell by cell against the reference (`golden_style.py`: colours, fonts, `--select 1`, `--links`) and by `navtest.ps1` |
-| M5 | Real network | HTTP/HTTPS, redirects, refusal of HTML and other blocked types, URL resolution, transliteration, error pages, URL entry screen |
+| M5 | Real network | HTTP/HTTPS, redirects, refusal of HTML and other blocked types, URL resolution, transliteration, error pages, URL entry screen. **2026-11-23:** test site `apps/zx-vvv/host/testsite.py` (every case, browsed from the 48K, expected result next to each link); own address field (255 characters, pre-filled, cursor, scrolls); refused types say VVV's "Unsupported type: not 8TML page" (cut to 32 columns). Done when every test-site case and T8wn behave on the real 48K |
 | M6 | Robustness | Chunk re-request (`C`), shorter pilots, parser fuzzing passes, progressive first-screen render |
-| M7 | Stylesheets | 8SS parsing, the cascade, `zx.` prefixes, `site.8ss` caching |
+| M7 | Stylesheets | 8SS parsing, the cascade, `zx.` prefixes, `site.8ss` caching. **2026-11-23 in Fuse:** `apps/zx-vvv/zx/style.asm` (8SS parsing into per-source "partials", the cascade key by key, `zx.` beats plain within a source, other machines ignored); site.8ss fetched once per site (4 sites kept, missing too), the last page `style:` sheet kept; fetched before the page is laid out. Colours on the page background; on a coloured bg the whole page takes the bg's BRIGHT (even background, decided 2026-11-23); the focused link is drawn in `link-sel` (screen redrawn on focus moves). Checked cell by cell against the reference CLI's cascade (`testpages/styled/`, the live T8wn page) |
 | M8 | Forms | Fields, shared focus order, password masking, POST (never auto-resent) |
 | M1p | PCB rev A (runs in parallel with M1a–M1c) | `hardware/DESIGN.md` reviewed → KiCad schematic + layout pass ERC/DRC → Gerbers, BOM, CPL accepted by JLCPCB → boards arrive, USB enumerates, and TX/RX pass the M1b/M1c tests on the board |
 | M9 | Extras | Turbo loader (custom Z80 loader + ESP32 timings), files service (tape library and SAVE storage), C3 port, enclosure |

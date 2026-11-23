@@ -131,8 +131,16 @@ esp_err_t fetch_get(const char *url, const fetch_opts_t *opts, uint8_t *buf, siz
                 ? fail(res, FETCH_ERR_TIMEOUT, msg, msg_size, "Timed out")
                 : fail(res, FETCH_ERR_CONNECT, msg, msg_size, "Could not connect");
         }
-        esp_http_client_fetch_headers(c);
+        /* No headers within the timeout (a slow server) or none at all: an
+         * error, not a page with whatever status the client last had. */
+        int64_t hl = esp_http_client_fetch_headers(c);
         res->status = esp_http_client_get_status_code(c);
+        if (hl < 0 || res->status < 100 || res->status > 599) {
+            ESP_LOGW(TAG, "no response headers (%lld, status %d)", (long long)hl, res->status);
+            esp_http_client_cleanup(c);
+            return hl < 0 ? fail(res, FETCH_ERR_TIMEOUT, msg, msg_size, "Timed out")
+                          : fail(res, FETCH_ERR_CONNECT, msg, msg_size, "Could not connect");
+        }
 
         if (is_redirect(res->status)) {
             if (hop == MAX_REDIRECTS) {
@@ -158,7 +166,16 @@ esp_err_t fetch_get(const char *url, const fetch_opts_t *opts, uint8_t *buf, siz
         /* Read the body (also for 4xx/5xx: the caller decides what to do). */
         while (res->len < cap) {
             int n = esp_http_client_read(c, (char *)buf + res->len, cap - res->len);
-            if (n <= 0)
+            if (n < 0) {                    /* stalled or broken off: what came is cut */
+                ESP_LOGW(TAG, "body read failed (%d) after %u bytes", n, (unsigned)res->len);
+                if (res->len == 0) {
+                    esp_http_client_cleanup(c);
+                    return fail(res, FETCH_ERR_TIMEOUT, msg, msg_size, "Timed out");
+                }
+                res->truncated = true;
+                break;
+            }
+            if (n == 0)
                 break;
             res->len += n;
         }

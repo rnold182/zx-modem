@@ -9,7 +9,8 @@ A page with a hand-written <name>.expect.txt is left alone: that is for
 behaviour the reference tool doesn't have (forms, which zx-vvv skips until
 M8, are drawn by the tool).
 
-Usage: python golden.py [--check]   (--check: run `8tml check` on the pages too)
+Usage: python golden.py [--check] [folders...]   (default: testpages/;
+       --check: run `8tml check` on the pages too)
 Needs the spec package in apps/zx-vvv/spec (not in the public repo).
 """
 import glob
@@ -35,7 +36,11 @@ def render(page):
 
 def main():
     check = '--check' in sys.argv
-    for page in sorted(glob.glob(os.path.join(PAGES, '*.8tml')) + glob.glob(os.path.join(PAGES, '*.txt'))):
+    dirs = [a for a in sys.argv[1:] if a != '--check'] or [PAGES]
+    pages = []
+    for d in dirs:
+        pages += sorted(glob.glob(os.path.join(d, '*.8tml')) + glob.glob(os.path.join(d, '*.txt')))
+    for page in pages:
         if page.endswith(('.zx.txt', '.expect.txt', '.links.txt')):
             continue
         name = os.path.splitext(page)[0]

@@ -1,0 +1,21 @@
+---
+8tml: 1
+title: Styled roles
+case: mixed
+---
+# Centred by the site sheet
+
+## A yellow h2
+
+### An h3, green on the ZX, upper case
+
+Plain text with *emphasis*, **strong** and <red>red</> words, a <rev>reversed</rev> one, and a [link](roles.8tml).
+
+> A quote in cyan.
+
+* An item, with a [second link](other.8tml)
+
+```
+preformatted, white
+```
+---

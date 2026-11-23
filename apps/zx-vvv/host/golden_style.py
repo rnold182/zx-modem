@@ -10,10 +10,10 @@ For every test page this writes, next to the layout golden file:
 The reference renderer (spec tools/tml/render.py) gives each cell an 8TML
 colour and reverse; b and i come from its parser's runs. The colours are
 mapped with zx-vvv's ZX table (CLAUDE.md 6.6), not the tool's RGB-nearest
-preview. Styles are the reference defaults plus the page's case: zx-vvv has
-no stylesheets yet (M7). Needs the spec package in apps/zx-vvv/spec.
+preview. Styles cascade as in the reference CLI: the folder's site.8ss, the
+page's style: sheet, the header. Needs the spec package in apps/zx-vvv/spec.
 
-Usage: python golden_style.py [pages...]   (default: all of testpages/)
+Usage: python golden_style.py [pages or folders...]   (default: testpages/)
 """
 import glob
 import json
@@ -49,33 +49,60 @@ class StyledRenderer(render.Renderer):
         return out
 
 
-def zx_cell(c, text_color):
+def zx_cell(c, text_color, bg):
+    """A reference cell as zx-vvv draws it: ink and paper on the page's
+    background; on a coloured background the whole page takes its BRIGHT
+    (an even background), on black the colour's own."""
     ch = ' ' if c.ch == parser.NBSP else c.ch
-    ink, bright = ZX[c.color or text_color]
+    ink, bright = ZX[c.color or text_color or 'lightgrey']
+    bg_ink, bg_bright = ZX[bg]
+    if bg_ink:
+        bright = bg_bright
     bold, italic = getattr(c, 'b', False), getattr(c, 'i', False)
     if c.rev:
-        return [ch, 0, ink, bright, bold, italic]
-    return [ch, ink, 0, bright, bold, italic]
+        return [ch, bg_ink, ink, bright, bold, italic]
+    return [ch, ink, bg_ink, bright, bold, italic]
 
 
-def rows_of(doc, selected=None):
-    styles = dict(style.DEFAULTS)
-    if 'case' in doc.header:
-        styles['case'] = doc.header['case']
+def load_sources(page, doc):
+    """The cascade's sources as the reference CLI loads them: the page
+    folder's site.8ss, the page's style: sheet (a local file), the header."""
+    sources = []
+    files = [os.path.join(os.path.dirname(page), 'site.8ss')]
+    if 'style' in doc.header and '://' not in doc.header['style']:
+        files.append(os.path.join(os.path.dirname(page), doc.header['style'].split('?')[0]))
+    for path in files:
+        if os.path.exists(path):
+            entries = style.parse_8ss(open(path, 'rb').read().decode('latin-1'), lambda *a: None)
+            sources.append([(k, v) for _, k, v in entries])
+    sources.append([(k, v) for _, k, v in doc.header_entries])
+    return sources
+
+
+def rows_of(doc, page, selected=None):
+    styles = style.resolve(load_sources(page, doc), 'zx')
     r = StyledRenderer(doc, styles, MACHINES['zx'], None, selected)
     r.render()
     text = r.style('text').color
-    return [[zx_cell(c, text) for c in row] for row in r.rows], r
+    rows = [[zx_cell(c, text, r.bg) for c in row] for row in r.rows]
+    blank = zx_cell(render.Cell(' ', None), text, r.bg)
+    return [row + [blank] * (32 - len(row)) for row in rows], r
 
 
 def main(argv):
-    pages = argv[1:] or sorted(glob.glob(os.path.join(PAGES, '*.8tml')) + glob.glob(os.path.join(PAGES, '*.txt')))
+    args = argv[1:] or [PAGES]
+    pages = []
+    for a in args:                       # pages, or folders of pages
+        if os.path.isdir(a):
+            pages += sorted(glob.glob(os.path.join(a, '*.8tml')) + glob.glob(os.path.join(a, '*.txt')))
+        else:
+            pages.append(a)
     for page in pages:
         if page.endswith('.zx.txt') or page.endswith('.expect.txt') or page.endswith('.links.txt'):
             continue
         name = os.path.splitext(page)[0]
         doc = parser.parse(open(page, 'rb').read())
-        rows, _ = rows_of(doc)
+        rows, _ = rows_of(doc, page)
         if os.path.exists(name + '.expect.txt'):
             n = len(open(name + '.expect.txt', encoding='utf-8').read().rstrip('\n').split('\n'))
             rows = rows[:n] if 'toolong' in name else None   # forms: the reference draws them
@@ -91,7 +118,7 @@ def main(argv):
         if os.path.exists(sel):
             os.remove(sel)
         if doc.links and rows is not None:
-            selrows, _ = rows_of(doc, ('link', 0))
+            selrows, _ = rows_of(doc, page, ('link', 0))
             first = next((i for i, (a, b) in enumerate(zip(rows, selrows)) if a != b), None)
             if first is not None and first < 22:
                 json.dump(selrows[:22], open(sel, 'w'), separators=(',', ':'))

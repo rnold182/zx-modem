@@ -1,0 +1,14 @@
+---
+8tml: 1
+title: Page sheet
+style: page.8ss
+case: mixed
+quote: yellow
+zx.text: white
+text: red
+---
+## An h2 from the page sheet: light green, upper
+
+> A quote: the header's yellow beats the page sheet.
+
+Text in white: the header's zx.text wins over its plain text: red.

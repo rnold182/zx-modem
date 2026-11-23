@@ -1,0 +1,9 @@
+---
+8tml: 1
+title: Header keys
+bg: black
+link: green
+---
+# No case key: upper
+
+The header's bg: black beats the site's blue, and its link: green beats the site's yellow: [a link](roles.8tml).

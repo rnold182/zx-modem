@@ -1,0 +1,3 @@
+# a page sheet: overrides single keys of site.8ss
+h2: lightgreen upper
+quote: pink reverse

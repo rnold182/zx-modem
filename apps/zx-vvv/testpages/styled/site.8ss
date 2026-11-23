@@ -1,0 +1,17 @@
+# The test site's style: a coloured background, like T8wn's town style
+bg: blue
+border: blue
+text: lightgrey
+h1: white center
+h2: yellow
+h3: white upper
+em: cyan
+strong: white
+link: yellow
+link-sel: cyan reverse
+quote: cyan
+pre: white
+rule: lightblue
+# machine prefixes: zx. wins over the plain key in this file; c64. is ignored
+zx.h3: green
+c64.h2: red

@@ -18,7 +18,7 @@ New-Item -ItemType Directory -Force "$Build\fusetest" | Out-Null
 . "$PSScriptRoot/fusectl.ps1"
 
 $replies = @('info:HomeNet', "overlay:$Build\vvv.bin",
-    "page:$T\links.8tml@https://test.example/site/links.8tml",
+    "page:$T\links.8tml@https://test.example/site/links.8tml", 'nosheet',   # + its site's site.8ss
     "page:$T\blocks.8tml@https://test.example/site/part3a.8tml",
     "page:$T\links.8tml@https://test.example/site/links.8tml",
     "page:$T\inline.8tml@https://test.example/site/part1b.8tml",

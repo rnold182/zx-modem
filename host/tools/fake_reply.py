@@ -19,6 +19,8 @@ REPLY is one of:
                        final URL (default https://t8wn.com/index.8tml),
                        type text/8tml, then FILE, with STATUS (default 200)
   httperr:CODE:MESSAGE http G error reply ([code][message])
+  sheet:FILE[@URL]     http G one-reply answer for a stylesheet (200)
+  nosheet              http G one-reply answer: no stylesheet there (404)
   tap:FILE             a whole .tap (e.g. a BASIC program to LOAD)
   error:MESSAGE        error reply
 """
@@ -98,6 +100,13 @@ def reply(spec):
             body = f.read()
         # one reply (http G flag bit 1, as zx-vvv asks): url 0 type 0 body
         return response(0, url.encode('ascii') + b'\0text/8tml\0' + body, http=int(status or 200))
+    if kind == 'sheet':                 # a stylesheet: one reply, 200, text/plain
+        name, _, url = arg.partition('@')
+        with open(name, 'rb') as f:
+            sheet = f.read()
+        return response(0, (url or 'https://test.example/site.8ss').encode('ascii') + b'\0text/plain\0' + sheet, http=200)
+    if kind == 'nosheet':               # no stylesheet there: one reply, 404
+        return response(0, b'https://test.example/site.8ss\0text/plain\0Not found\n', http=404)
     if kind == 'httperr':
         code, _, msg = arg.partition(':')
         return response(1, bytes([int(code)]) + msg.encode('ascii'))

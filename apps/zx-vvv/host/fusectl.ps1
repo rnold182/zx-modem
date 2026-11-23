@@ -47,6 +47,17 @@ public class FuseCtl {
    PostMessage(h, 0x100, (IntPtr)vk, (IntPtr)(1 | (scan << 16)));
    Thread.Sleep(150);
    PostMessage(h, 0x101, (IntPtr)vk, (IntPtr)unchecked((int)(1 | (scan << 16) | 0xC0000000)));
+   Thread.Sleep(200); }
+ /* A key with a modifier held: VK_SHIFT (0x10) is CAPS SHIFT, VK_CONTROL (0x11) SYMBOL SHIFT. */
+ public static void Combo(IntPtr h, byte mod, byte vk) {
+   uint ms = MapVirtualKey(mod, 0), scan = MapVirtualKey(vk, 0);
+   PostMessage(h, 0x100, (IntPtr)mod, (IntPtr)(1 | (ms << 16)));
+   Thread.Sleep(80);
+   PostMessage(h, 0x100, (IntPtr)vk, (IntPtr)(1 | (scan << 16)));
+   Thread.Sleep(150);
+   PostMessage(h, 0x101, (IntPtr)vk, (IntPtr)unchecked((int)(1 | (scan << 16) | 0xC0000000)));
+   Thread.Sleep(80);
+   PostMessage(h, 0x101, (IntPtr)mod, (IntPtr)unchecked((int)(1 | (ms << 16) | 0xC0000000)));
    Thread.Sleep(200); } }
 "@
 
@@ -64,6 +75,8 @@ function Start-FuseHidden($tap) {
 }
 
 function Send-FuseKey($vk) { [FuseCtl]::Key($script:fuseWin, [byte]$vk) }
+function Send-FuseCaps($vk) { [FuseCtl]::Combo($script:fuseWin, 0x10, [byte]$vk) }     # CAPS SHIFT + key
+function Send-FuseSymbol($vk) { [FuseCtl]::Combo($script:fuseWin, 0x11, [byte]$vk) }   # SYMBOL SHIFT + key
 
 # The Spectrum screen (with border), 640x480 at Fuse's 2x scale.
 function Save-FuseScreen($path) {

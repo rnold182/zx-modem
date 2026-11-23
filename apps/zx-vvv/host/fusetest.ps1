@@ -52,8 +52,29 @@ function Check($what) {
 }
 
 # the tape
+# zx-vvv asks for stylesheets after a page: the site's site.8ss once (all
+# test pages are on one site), and the page's own style: sheet when it isn't
+# the one it already has.
 $replies = @('info:HomeNet', "overlay:$Build\vvv.bin")
-foreach ($p in $Pages) { $replies += "page:$TestDir\$p@https://test.example/$p" }
+$lastSheet = ''
+for ($i = 0; $i -lt $Pages.Count; $i++) {
+    $p = $Pages[$i]
+    $replies += "page:$TestDir\$p@https://test.example/$p"
+    if ($i -eq 0) {
+        $replies += $(if (Test-Path "$TestDir\site.8ss") { "sheet:$TestDir\site.8ss" } else { 'nosheet' })
+    }
+    $sheet = ''
+    $lines = @(Get-Content "$TestDir\$p")
+    if ($lines.Count -gt 0 -and $lines[0].TrimEnd() -eq '---') {
+        for ($k = 1; $k -lt $lines.Count -and $lines[$k].Trim() -ne '---'; $k++) {
+            if ($lines[$k] -match '^\s*style\s*:\s*(.+?)\s*$') { $sheet = $Matches[1] }
+        }
+    }
+    if ($sheet -and $sheet -ne $lastSheet) {
+        $replies += $(if (Test-Path "$TestDir\$sheet") { "sheet:$TestDir\$sheet" } else { 'nosheet' })
+        $lastSheet = $sheet
+    }
+}
 & python "$Root\host\tools\fake_reply.py" "$Build\zxmenu.tap" "$Build\fusetest.tap" @replies
 if ($LASTEXITCODE) { throw 'fake_reply failed' }
 

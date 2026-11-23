@@ -27,11 +27,18 @@ STATUS_ROW	equ	23
 STATUS_TEXT	equ	25		; columns for the message; the screen counter after
 A_PAGE		equ	A_BODY
 A_STAT_ERR	equ	0x4E		; bright yellow on blue
-INPUT_MAX	equ	63		; edit_line's limit
+ADDR_MAX	equ	URL_MAX		; the address field: up to 255 characters,
+ADDR_ROW	equ	20		;   seen through two rows (64 cells)
+K_RIGHT		equ	9		; CAPS+8
 RXBUF_SIZE	equ	400		; url-info: final address, 0, type; or an error
 HTTP_ASCII	equ	0x01		; http G flags: UTF-8 -> ASCII,
 HTTP_ONE	equ	0x02		;   one reply: url 0 type 0 body
 SAVE_SIZE	equ	64		; page bytes an error reply may cover
+BORDCR		equ	23624		; system variable: border colour * 8
+SHEET_MAX	equ	1200		; a stylesheet's reply: url 0 type 0 sheet
+SITES		equ	4		; sites whose site.8ss (or its absence) is kept
+SITE_KEY	equ	64		; scheme://host:port, cut to 63
+SITE_SIZE	equ	SITE_KEY+PARTIAL_SIZE
 
 LIST_TOP	equ	2		; the link list: rows 2-21
 LIST_ROWS	equ	20
@@ -48,7 +55,16 @@ RESP_URLINFO	equ	3
 
 vvv:
 	ld	(app_sp),sp
+	ld	a,(BORDCR)		; the menu's border, for when we go back
+	ld	(bordcr_save),a
+	ld	hl,site_cache		; no stylesheets known yet
+	ld	de,site_cache+1
+	ld	bc,SITES*SITE_SIZE-1
+	ld	(hl),0
+	ldir
 	xor	a
+	ld	(site_next),a
+	ld	(ps_valid),a
 	ld	(cur_url),a
 	ld	(page_cut),a
 	ld	hl,0
@@ -88,14 +104,16 @@ main_loop:
 	cp	'h'
 	jr	z,key_home
 	cp	'n'
-	jr	z,key_next
+	jp	z,key_next
 	cp	'm'
 	jp	z,key_prev
 	cp	'?'
 	jr	z,key_help
 	cp	'q'
 	jr	nz,main_loop
-	ld	sp,(app_sp)		; back to the menu
+	ld	a,(bordcr_save)		; back to the menu, with its border
+	ld	(BORDCR),a
+	ld	sp,(app_sp)
 	ret
 
 ; key_help: the keys, until any key; then the page again.
@@ -177,25 +195,147 @@ key_prev:
 	jp	main_loop
 
 key_go:
+	ld	hl,cur_url		; start from the current address
+	ld	de,input
+	call	u_strcpy
+	ld	hl,input
+	call	u_strlen
+	ld	a,c
+	ld	(ad_len),a
+	ld	(ad_cur),a
+	xor	a
+	ld	(ad_off),a
 	ld	b,19
+.clr:
+	push	bc
 	ld	a,A_PAGE
 	call	scr_clear_row
-	ld	b,22
-	ld	a,A_PAGE
-	call	scr_clear_row
+	pop	bc
+	inc	b
+	ld	a,b
+	cp	24
+	jr	c,.clr
 	ld	bc,19*256+0
 	ld	a,A_MSG
 	ld	hl,s_address
 	call	text_at
-	ld	hl,input
-	ld	b,INPUT_MAX
-	ld	c,0
-	ld	d,20
-	call	edit_line
-	jr	nc,.cancel
-	ld	a,(input)
+	ld	bc,22*256+0
+	ld	a,A_HINT
+	ld	hl,s_adkeys1
+	call	text_at
+	ld	bc,23*256+0
+	ld	a,A_HINT
+	ld	hl,s_adkeys2
+	call	text_at
+.draw:
+	call	ad_draw
+.key:
+	call	wait_key
+	cp	K_ENTER
+	jp	z,.done
+	cp	K_EDIT
+	jp	z,.cancel
+	cp	K_DELETE
+	jr	z,.del
+	cp	K_LEFT
+	jr	z,.left
+	cp	K_RIGHT
+	jr	z,.right
+	cp	K_TRUE_VIDEO
+	jp	z,.clear
+	cp	K_CAPS_LOCK
+	jp	z,.caps
+	cp	32			; printable ASCII only (no keyword tokens)
+	jr	c,.key
+	cp	127
+	jr	nc,.key
+	ld	(ad_tmp),a		; insert at the cursor
+	ld	a,(ad_len)
+	cp	ADDR_MAX
+	jr	nc,.key			; full
+	ld	b,a
+	ld	a,(ad_cur)
+	ld	c,a
+	ld	a,b
+	sub	c			; len - cur characters move up by one
+	jr	z,.ins
+	ld	c,a
+	ld	b,0
+	ld	a,(ad_len)
+	call	ad_ptr			; HL = input + len
+	ld	d,h
+	ld	e,l
+	dec	hl			; from the last character, backwards
+	lddr
+.ins:
+	ld	a,(ad_cur)
+	call	ad_ptr
+	ld	a,(ad_tmp)
+	ld	(hl),a
+	ld	hl,ad_len
+	inc	(hl)
+	ld	hl,ad_cur
+	inc	(hl)
+	jr	.draw
+.del:					; the character before the cursor
+	ld	a,(ad_cur)
+	or	a
+	jr	z,.key
+	dec	a
+	ld	(ad_cur),a
+	call	ad_ptr
+	ld	d,h
+	ld	e,l
+	inc	hl
+	ld	a,(ad_len)
+	ld	b,a
+	ld	a,(ad_cur)
+	ld	c,a
+	ld	a,b
+	sub	c
+	dec	a			; len - cur - 1 characters move down
+	ld	c,a
+	ld	b,0
+	jr	z,.deld
+	ldir
+.deld:
+	ld	hl,ad_len
+	dec	(hl)
+	jp	.draw
+.left:
+	ld	a,(ad_cur)
+	or	a
+	jp	z,.key
+	dec	a
+	ld	(ad_cur),a
+	jp	.draw
+.right:
+	ld	a,(ad_len)
+	ld	b,a
+	ld	a,(ad_cur)
+	cp	b
+	jp	nc,.key
+	inc	a
+	ld	(ad_cur),a
+	jp	.draw
+.clear:
+	xor	a
+	ld	(ad_len),a
+	ld	(ad_cur),a
+	ld	(ad_off),a
+	jp	.draw
+.caps:
+	ld	hl,FLAGS2
+	ld	a,(hl)
+	xor	8
+	ld	(hl),a
+	jp	.key
+.done:
+	ld	a,(ad_len)
 	or	a
 	jr	z,.cancel
+	call	ad_ptr			; the end: a 0
+	ld	(hl),0
 	call	show_page		; the page back under the field
 	ld	hl,input
 	call	go_typed
@@ -203,6 +343,82 @@ key_go:
 .cancel:
 	call	show_page
 	jp	main_loop
+
+; ad_ptr: HL = input + A.
+ad_ptr:
+	ld	hl,input
+	ld	e,a
+	ld	d,0
+	add	hl,de
+	ret
+
+; ad_draw: the field: 64 cells of the address around the cursor, the
+; cursor's cell highlighted.
+ad_draw:
+	ld	a,(ad_off)		; keep the cursor in view
+	ld	b,a
+	ld	a,(ad_cur)
+	cp	b
+	jr	nc,.notleft
+	ld	(ad_off),a
+	jr	.view
+.notleft:
+	sub	b
+	cp	64
+	jr	c,.view
+	ld	a,(ad_cur)
+	sub	63
+	ld	(ad_off),a
+.view:
+	ld	c,0			; C = the cell, 0-63
+.cell:
+	ld	a,c
+	and	31
+	push	bc
+	ld	b,ADDR_ROW
+	bit	5,c
+	jr	z,.r
+	inc	b
+.r:
+	ld	c,a
+	call	scr_at
+	pop	bc
+	ld	a,(ad_off)		; E = the character's place in the address
+	add	a,c
+	ld	e,a
+	ld	a,A_FIELD
+	jr	c,.attr			; past 255
+	ld	a,(ad_cur)
+	cp	e
+	ld	a,A_FIELD
+	jr	nz,.attr
+	ld	a,A_SEL			; the cursor
+.attr:
+	ld	(scr_attr),a
+	ld	a,(ad_off)
+	add	a,c
+	jr	c,.blank		; past 255
+	ld	a,(ad_len)
+	cp	e
+	jr	c,.blank		; past the end
+	jr	z,.blank
+	ld	a,e
+	push	bc
+	call	ad_ptr
+	ld	a,(hl)
+	pop	bc
+	jr	.put
+.blank:
+	ld	a,' '
+.put:
+	push	bc
+	call	scr_putc
+	pop	bc
+	inc	c
+	ld	a,c
+	cp	64
+	jr	c,.cell
+	ret
 
 ; go_typed: HL = an address the reader typed (or home, or reload).
 go_typed:
@@ -231,23 +447,8 @@ go_resolve:
 ; replaced once the modem answers with url-info; an error keeps the page.
 fetch_url:
 	call	status_loading
-	ld	de,req_url
-	ld	hl,url_out
-	call	u_strcpy
-	inc	de
-	ld	hl,s_accept
-	call	u_strcpy
-	inc	de
-	ld	hl,s_refuse
-	call	u_strcpy		; the last field needs no 0
-	ex	de,hl
-	ld	de,req
-	or	a
-	sbc	hl,de
-	ld	b,h
-	ld	c,l
-	ld	hl,req
-	call	link_request
+	ld	hl,PAGE_MAX
+	call	send_get
 	; One reply: [final address] 0 [type] 0 [page], straight into the page
 	; buffer. Only a page replaces the page: an error reply (short) lands
 	; on its first bytes, so they are saved first and put back.
@@ -339,6 +540,11 @@ fetch_url:
 	ld	a,(link_header+1)
 	and	2			; cut by the modem
 	ld	(page_cut),a
+	ld	hl,(page_len)		; (page_end, for parse_header)
+	ld	de,page_buf
+	add	hl,de
+	ld	(page_end),hl
+	call	styles_fetch		; site.8ss (once per site), the page's sheet
 	call	new_page
 	ld	a,(nav)			; back: to the screen we were on
 	cp	NAV_BACK
@@ -386,6 +592,28 @@ page_restore:
 	ldir
 	ret
 
+; send_get: ask the http service for url_out (one reply), at most HL
+; bytes back; Accept text/8tml, HTML and media refused.
+send_get:
+	ld	(req+3),hl
+	ld	de,req_url
+	ld	hl,url_out
+	call	u_strcpy
+	inc	de
+	ld	hl,s_accept
+	call	u_strcpy
+	inc	de
+	ld	hl,s_refuse
+	call	u_strcpy		; the last field needs no 0
+	ex	de,hl
+	ld	de,req
+	or	a
+	sbc	hl,de
+	ld	b,h
+	ld	c,l
+	ld	hl,req
+	jp	link_request
+
 ; link_failed: no answer (A = LINK_ERR_*); the page stays.
 link_failed:
 	ld	hl,s_stopped
@@ -414,11 +642,8 @@ modem_error:
 .found:
 	jp	status_error
 .type:
-	ld	hl,s_unsupported
-	call	status_error
-	ld	hl,rxbuf+1
-	ld	b,32-18
-	jp	print_max
+	ld	hl,s_unsupported	; VVV's words (shortened to fit 32 columns)
+	jp	status_error
 .text:						; unknown code: the modem's text
 	ld	hl,rxbuf
 	ld	a,(hl)
@@ -585,12 +810,19 @@ new_page:
 	ld	(page_no),hl
 	call	focus_none
 	call	parse_header
+	call	styles_apply		; the cascade for this page
 	jp	render_measure
 
 ; show_page: the title bar and screen page_no of the page, then the status.
 show_page:
-	ld	a,A_PAGE
+	ld	a,(att_plain)		; the page's background
 	call	scr_cls
+	ld	a,(border)
+	out	(0xFE),a
+	add	a,a
+	add	a,a
+	add	a,a
+	ld	(BORDCR),a		; (the tape routines put it back after loads)
 	call	make_title
 	ld	hl,title_disp
 	call	draw_title
@@ -598,17 +830,13 @@ show_page:
 	ld	a,A_HINT
 	ld	hl,s_keyhint
 	call	text_at
+	ld	hl,(focus)		; the focused link is drawn in link-sel
+	ld	(sel_link),hl
 	ld	hl,(page_no)
 	call	render_draw
-	xor	a
-	ld	(sel_count),a
-	ld	hl,(focus)		; the focused link, if it's on this screen
+	ld	hl,(focus)		; is it on this screen?
 	call	run_has
-	jp	nc,.nofocus
-	call	sel_paint
-	jp	show_status
-.nofocus:
-	call	focus_none
+	call	nc,focus_none
 	jp	show_status
 
 ; make_title: title_disp = the page's title (in its case, up to 15
@@ -676,6 +904,7 @@ print_dec16:
 focus_none:
 	ld	hl,0xFFFF
 	ld	(focus),hl
+	ld	(sel_link),hl
 	ret
 
 ; key_down / key_up: the next / previous link on the screen; past the
@@ -728,19 +957,15 @@ key_enter:
 
 ; focus_set: focus link HL: highlight it, find its address, show it.
 focus_set:
-	push	hl
-	call	sel_restore
-	pop	hl
 	ld	(focus),hl
-	call	sel_paint
-	ld	hl,(focus)
-	ld	(find_no),hl
+	ld	(find_no),hl		; its address, for the status line and ENTER
 	ld	hl,(page_no)
 	call	render_find
-	jp	c,show_status
+	jr	c,.found
 	xor	a
 	ld	(found_url),a
-	jp	show_status
+.found:
+	jp	show_page		; drawn again, the link in link-sel
 
 ; focus_next: carry and HL = the first link on the screen after the focus
 ; (the first of all if none is focused).
@@ -858,107 +1083,6 @@ run_has:
 	scf
 	ret	z
 .n:
-	call	runs_next
-	jr	.l
-
-; sel_paint: show the focused link selected (reversed, the reference's
-; link-sel), saving its cells' attributes for sel_restore.
-sel_paint:
-	xor	a
-	ld	(sel_count),a
-	ld	de,sel_save
-	ld	(sel_ptr),de
-	ld	a,1
-	jr	sel_walk
-; sel_restore: the focused link's attributes as they were.
-sel_restore:
-	ld	a,(sel_count)
-	or	a
-	ret	z
-	ld	(sel_left),a
-	ld	de,sel_save
-	ld	(sel_ptr),de
-	xor	a
-	ld	(sel_count),a
-	; fall through (A = 0: restore)
-sel_walk:
-	ld	(sel_mode),a
-	call	runs_start
-.l:
-	ret	z
-	push	bc
-	push	hl
-	ld	e,(hl)			; this run's link = the focus?
-	inc	hl
-	ld	d,(hl)
-	inc	hl
-	push	hl
-	ld	hl,(focus)
-	or	a
-	sbc	hl,de
-	pop	hl
-	jr	nz,.skip
-	ld	a,(hl)			; row, column, length
-	inc	hl
-	ld	c,(hl)
-	inc	hl
-	ld	b,(hl)
-	ld	l,a			; HL = 0x5800 + row * 32 + column
-	ld	h,0
-	add	hl,hl
-	add	hl,hl
-	add	hl,hl
-	add	hl,hl
-	add	hl,hl
-	ld	a,c
-	or	l
-	ld	l,a
-	ld	a,h
-	or	0x58
-	ld	h,a
-.cell:
-	ld	de,(sel_ptr)
-	ld	a,(sel_mode)
-	or	a
-	jr	z,.back
-	ld	a,(sel_count)
-	inc	a
-	jr	z,.next			; 255 saved: the rest stays
-	ld	(sel_count),a
-	ld	a,(hl)
-	ld	(de),a
-	and	0x38			; paper black: reverse it (ink on black ->
-	jr	nz,.next		; black on ink), else it is reversed already
-	ld	a,(hl)
-	and	0x47
-	ld	c,a
-	and	0x07
-	add	a,a
-	add	a,a
-	add	a,a
-	ld	e,a
-	ld	a,c
-	and	0x40
-	or	e
-	ld	(hl),a
-	jr	.next
-.back:
-	ld	a,(sel_left)		; only as many as were saved
-	or	a
-	jr	z,.next
-	dec	a
-	ld	(sel_left),a
-	ld	a,(de)
-	ld	(hl),a
-.next:
-	ld	de,(sel_ptr)
-	inc	de
-	ld	(sel_ptr),de
-	inc	hl
-	djnz	.cell
-.skip:
-	pop	hl
-	pop	bc
 	call	runs_next
 	jr	.l
 
@@ -1176,6 +1300,277 @@ key_list:
 	call	status_error
 	jp	main_loop
 
+; ---- Stylesheets (M7) ------------------------------------------------------
+; site.8ss is fetched once per site (scheme://host:port) and kept, missing
+; or not, for the last SITES sites; the page's style: sheet is kept for the
+; last one. A site's sheet that couldn't be loaded counts as missing (spec
+; 8.1); only a reply that never came (SPACE, a tape error) isn't kept.
+
+; styles_fetch: the new page (in page_buf, cur_url set) may need its site's
+; sheet and its own: fetch whichever isn't known yet.
+styles_fetch:
+	call	parse_header
+	call	site_key
+	ld	a,(skey)
+	or	a
+	ret	z
+	call	site_find
+	jr	c,.page
+	ld	hl,cur_url		; /site.8ss of this site
+	ld	de,s_site8ss
+	call	url_resolve
+	or	a
+	jr	nz,.page
+	ld	a,(site_next)		; the next slot, round the 4
+	ld	l,a
+	ld	h,0
+	ld	de,SITE_SIZE
+	call	mul_hl_de
+	ld	de,site_cache
+	add	hl,de
+	push	hl
+	ld	de,SITE_KEY
+	add	hl,de
+	ld	b,h
+	ld	c,l
+	call	sheet_get		; -> the partial at BC
+	pop	de
+	jr	c,.page			; no reply at all: not kept
+	ld	hl,skey			; keep it under the site's name
+	call	u_strcpy
+	ld	a,(site_next)
+	inc	a
+	and	SITES-1
+	ld	(site_next),a
+.page:
+	call	page_sheet_url		; the page's style:, resolved -> url_out
+	ret	nc
+	call	page_sheet_known
+	ret	c
+	ld	hl,url_out
+	ld	de,ps_url
+	call	u_strcpy
+	ld	bc,ps_part
+	call	sheet_get
+	ld	a,0
+	jr	c,.ps
+	inc	a
+.ps:
+	ld	(ps_valid),a
+	ret
+
+; styles_apply: the cascade for the page: its header, its site's sheet and
+; its own sheet, as far as they are known.
+styles_apply:
+	ld	hl,0
+	ld	(site_part),hl
+	ld	(page_part),hl
+	ld	a,(is_page)
+	or	a
+	jr	z,.nohdr
+	ld	hl,page_buf		; the header's lines are a source too
+	ld	de,(body_ptr)
+	ld	bc,hdr_part
+	call	sheet_parse
+	jr	.site
+.nohdr:
+	ld	hl,hdr_part
+	ld	b,PARTIAL_SIZE
+.clr:
+	ld	(hl),0
+	inc	hl
+	djnz	.clr
+.site:
+	call	site_key
+	ld	a,(skey)
+	or	a
+	jr	z,.page
+	call	site_find
+	jr	nc,.page
+	ld	de,SITE_KEY
+	add	hl,de
+	ld	(site_part),hl
+.page:
+	call	page_sheet_url
+	jr	nc,.done
+	call	page_sheet_known
+	jr	nc,.done
+	ld	hl,ps_part
+	ld	(page_part),hl
+.done:
+	jp	cascade
+
+; page_sheet_url: carry and url_out = the page's style: sheet, resolved
+; against the page, if it has one.
+page_sheet_url:
+	ld	a,(is_page)
+	or	a
+	ret	z
+	ld	a,(hd_stylelen)
+	or	a
+	ret	z
+	ld	c,a			; the value, 0-terminated, in input
+	ld	b,0
+	ld	hl,(hd_style)
+	ld	de,input
+	ldir
+	xor	a
+	ld	(de),a
+	ld	hl,cur_url
+	ld	de,input
+	call	url_resolve
+	or	a
+	ret	nz			; (no carry)
+	scf
+	ret
+
+; page_sheet_known: carry if the kept page sheet is url_out's.
+page_sheet_known:
+	ld	a,(ps_valid)
+	or	a
+	ret	z
+	ld	hl,url_out
+	ld	de,ps_url
+	call	str_eq
+	ret	nz
+	scf
+	ret
+
+; sheet_get: fetch url_out as a stylesheet into the partial at BC: parsed
+; if it came with a 2xx status, empty (missing) otherwise. Carry: no
+; reply came at all (SPACE or a tape error), so it shouldn't be kept.
+sheet_get:
+	ld	(sg_part),bc
+	call	status_loading
+	ld	hl,SHEET_MAX
+	call	send_get
+	ld	ix,sheet_buf
+	ld	de,SHEET_MAX
+	call	link_receive
+	jr	c,.reply
+	ld	hl,(sg_part)		; no reply: nothing known (not kept)
+	call	.clear
+	scf
+	ret
+.reply:
+	cp	RESP_BODY
+	jr	nz,.missing
+	ld	hl,(link_header+8)	; 2xx only
+	ld	de,200
+	or	a
+	sbc	hl,de
+	jr	c,.missing
+	ld	de,100
+	sbc	hl,de
+	jr	nc,.missing
+	ld	hl,sheet_buf		; [url] 0 [type] 0 [sheet]
+	add	hl,bc
+	ld	(hl),0
+	ex	de,hl			; DE = the end
+	ld	hl,sheet_buf
+.s1:
+	ld	a,(hl)
+	inc	hl
+	or	a
+	jr	nz,.s1
+.s2:
+	ld	a,(hl)
+	inc	hl
+	or	a
+	jr	nz,.s2
+	push	hl
+	or	a
+	sbc	hl,de
+	pop	hl
+	jr	nc,.missing		; (no sheet after the strings)
+	ld	bc,(sg_part)
+	call	sheet_parse
+	or	a
+	ret
+.missing:
+	ld	hl,(sg_part)
+	call	.clear
+	or	a
+	ret
+.clear:
+	ld	b,PARTIAL_SIZE
+.c:
+	ld	(hl),0
+	inc	hl
+	djnz	.c
+	ret
+
+; site_key: skey = the site of cur_url (scheme://host:port), or "".
+site_key:
+	ld	a,(cur_url)
+	ld	(skey),a
+	or	a
+	ret	z
+	ld	hl,cur_url
+	call	auth_end
+	ld	de,cur_url
+	or	a
+	sbc	hl,de
+	ld	a,h
+	or	a
+	jr	nz,.cut
+	ld	a,l
+	cp	SITE_KEY
+	jr	c,.n
+.cut:
+	ld	a,SITE_KEY-1
+.n:
+	ld	c,a
+	ld	b,0
+	ld	hl,cur_url
+	ld	de,skey
+	ldir
+	xor	a
+	ld	(de),a
+	ret
+
+; site_find: carry and HL = skey's entry in the cache.
+site_find:
+	ld	hl,site_cache
+	ld	b,SITES
+.l:
+	push	hl
+	push	bc
+	ld	de,skey
+	call	str_eq
+	pop	bc
+	pop	hl
+	scf
+	ret	z
+	ld	de,SITE_SIZE
+	add	hl,de
+	djnz	.l
+	or	a
+	ret
+
+; str_eq: Z if the strings at HL and DE are the same.
+str_eq:
+	ld	a,(de)
+	cp	(hl)
+	ret	nz
+	or	a
+	ret	z
+	inc	hl
+	inc	de
+	jr	str_eq
+
+; mul_hl_de: HL = L * DE (L small).
+mul_hl_de:
+	ld	b,l
+	ld	hl,0
+	ld	a,b
+	or	a
+	ret	z
+.m:
+	add	hl,de
+	djnz	.m
+	ret
+
 ; ---- History ----------------------------------------------------------------
 ; hist_buf holds entries [address][0][screen:2][entry length], newest last;
 ; when it is full the oldest go.
@@ -1332,11 +1727,14 @@ s_links:	db	"Links",0
 s_listkeys:	db	"6/7 ENTER go  N/M more  L back",0
 s_nolinks:	db	"No links on this page",0
 s_noback:	db	"No page to go back to",0
+s_site8ss:	db	"/site.8ss",0
 s_home:		db	"https://t8wn.com/index.8tml",0
 s_empty:	db	0
 s_accept:	db	"text/8tml",0
 s_refuse:	db	"text/html image/ audio/ video/ font/",0
-s_address:	db	"Address (CAPS+1 cancels):",0
+s_address:	db	"Address:",0
+s_adkeys1:	db	"ENTER go  CAPS+1 cancel",0
+s_adkeys2:	db	"CAPS+5/8 move CAPS+3 clear",0
 s_loading:	db	"Loading ",0
 s_server:	db	"Server says HTTP ",0
 s_cut:		db	"Page cut: too long",0
@@ -1346,7 +1744,7 @@ s_loaderr:	db	"Load error: R loads it again",0
 s_badreply:	db	"Unexpected reply",0
 s_nofollow:	db	"Can't follow this link",0
 s_long:		db	"Address too long",0
-s_unsupported:	db	"Unsupported type: ",0
+s_unsupported:	db	"Unsupported type: not 8TML page",0
 err_msgs:					; http service error codes 1-7 (6 above)
 		db	"No Wi-Fi",0
 		db	"Bad address",0
@@ -1371,11 +1769,15 @@ nav:		db	0			; NAV_NEW, NAV_RELOAD, NAV_BACK
 back_screen:	dw	0
 hist_top:	dw	0
 hist_len:	dw	0
-sel_count:	db	0
-sel_left:	db	0
-sel_mode:	db	0
-sel_ptr:	dw	0
+bordcr_save:	db	0
+site_next:	db	0
+ps_valid:	db	0			; 1: ps_url's sheet is in ps_part
+sg_part:	dw	0
 page_cut:	db	0
+ad_len:		db	0			; the address field: length,
+ad_cur:		db	0			;   cursor,
+ad_off:		db	0			;   first character shown
+ad_tmp:		db	0
 rx_end:		dw	0
 http_status:	dw	0
 
@@ -1383,13 +1785,17 @@ req:		db	0x01,'G',HTTP_ASCII|HTTP_ONE	; http service, G
 		dw	PAGE_MAX
 code_end:					; the buffers aren't loaded from tape
 req_url:	ds	URL_MAX+1+10+40		; (after req) url 0 accept 0 refuse
-input:		ds	INPUT_MAX+1
+input:		ds	ADDR_MAX+1
 tagbuf:		ds	16
 cur_cells:	ds	CELL*WIDTH
 pend_cells:	ds	CELL*WIDTH
 word_cells:	ds	CELL*(WIDTH+2)
 rowbuf:		ds	CELL*WIDTH
 page_save:	ds	SAVE_SIZE		; an error reply's place in the page
+site_cache:	ds	SITES*SITE_SIZE		; [site 64][partial] x 4
+ps_part:	ds	PARTIAL_SIZE		;   and its partial
+hdr_part:	ds	PARTIAL_SIZE		; the page header's styles
+skey:		ds	SITE_KEY
 title_buf:	ds	32
 title_disp:	ds	16
 page_buf:					; the page, up to APP_END
@@ -1409,11 +1815,14 @@ rxbuf		equ	win			; ... or a reply (RXBUF_SIZE)
 url_buf		equ	url_tmp			; a link's address (256)
 label_buf	equ	url_out			; a link's text (256)
 	ASSERT	RXBUF_SIZE <= WIN_SIZE+1 && URL_TMP_SIZE >= 256 && URL_OUT_SIZE >= 256
+sheet_buf	equ	url_tmp			; a stylesheet's reply: url_tmp .. win
+	ASSERT	url_out == url_tmp+URL_TMP_SIZE && win == url_out+URL_OUT_SIZE
+	ASSERT	URL_TMP_SIZE+URL_OUT_SIZE+WIN_SIZE >= SHEET_MAX+1
 runs:		ds	MAX_RUNS*5		; the screen's link pieces
-sel_save:	ds	256			; the focused link's attributes
 found_url:	ds	256			; the focused link's address
 hist_buf:	ds	HIST_SIZE
 snaps:		ds	MAX_SCREENS*SNAP_SIZE
+ps_url:		ds	URL_MAX+1		; the last page sheet's address
 	ASSERT	$ <= APP_SPARE_END
 
 	SAVEBIN	"vvv.bin", vvv, code_end - vvv
