@@ -449,6 +449,15 @@ Addresses (resolution, `index.8tml`, fragments, typed `host/path`) are done by t
 
 **Phone captive portal:** an optional fallback only, not planned.
 
+### 6.3c Z80 pitfalls found in zx-vvv (2026-11-23)
+
+Each of these was a real bug; check new code for them.
+- **Pointers into the line buffer (0x5B00) go stale:** the next source line overwrites it. Copy a value out (as `parse_header` does with `style:` into `input`) before reading another line.
+- **Carry left over from a compare:** `str_eq` and other `cp`-based tests can return NZ with carry set. A routine whose result is "carry = yes" must clear carry on the "no" path (`page_sheet_known` once said "known" for a different address).
+- **Registers across calls:** `runs_next` uses DE, so a caller can't keep a value there (the 7 key once failed). Keep such values in memory or push them.
+- **Length bytes:** an entry holding a 255-character address plus extras is longer than 255, so a one-byte length wraps (the history once did, and Back then ran an LDIR over the program). Use 2-byte lengths.
+- The fuzzer (`apps/zx-vvv/host/fuzztest.ps1`) catches the effects of these; run it after renderer or history changes.
+
 ### 6.4 Screen layout (proposal)
 
 - **Row 0:** title bar (page `title:` from the header), inverse.
@@ -600,7 +609,7 @@ The ESP32 detects the end of the block from the following silence, so no length 
 | `J` | `index \0 password`, or `0xFF ssid \0 password` for a hidden network | Join. The ESP32 tries to connect (2–8 s; the Spectrum waits in LD-BYTES). Reply: `wifi` (type 5: connected + IP; credentials saved to NVS only after success), or `error` with the reason ("Wrong password", "Network not found", "No IP address"). |
 | `O` | overlay id | Send a code overlay (type 6) for the caller to load at the address in the header. Id 1 = the Wi-Fi setup screen. |
 
-**HTTP service (`0x01`)** (authoritative: `docs/link-protocol.md` §6.4; firmware 0.7)
+**HTTP service (`0x01`)** (authoritative: `docs/link-protocol.md` §6.4; firmware 0.8)
 
 | Cmd | Args | Meaning |
 |---|---|---|
@@ -628,6 +637,7 @@ A response is a sequence of `header(0x90)` + optional `data(0x91)` pairs.
 
 **How the spec's HTTP rules map onto this protocol**
 - **Content-type refused, network failure, or too many redirects:** the ESP32 sends a single `error` response. The Spectrum shows the message in the status bar and **stays on the current page**, as spec §9.2 requires.
+  - **A refused type keeps the server's status** (firmware 0.8, decided 2026-11-23): the error header's `http_status` is the status the server answered with. zx-vvv says "Server says HTTP 404" when it isn't 2xx (an HTML error page, e.g. a mistyped relative link), and VVV's "Unsupported type: not 8TML page" only for 2xx.
 - **Non-2xx with a body** (e.g. 404): the ESP32 sends `url-info` and `body` as normal, with `http_status` set. The Spectrum shows "HTTP 404" in the status bar and renders the body.
   - If the body isn't an 8TML page, the spec only requires reporting the status. Show the body as plain text anyway, since it's harmless.
 - **`site.8ss` and `style:` sheets:** a non-2xx status or a refused type counts as **missing** (§8.1): the Spectrum checks the status in `url-info` (or gets an `error` for a refused type) and caches "missing".
@@ -777,11 +787,15 @@ ESP32 power: its own USB supply. Never from the Spectrum (the 48K's 7805 already
 | M3 | Renderer core | Page detection and plain-text fallback, the header (`#` comments, unclosed header, **default uppercase**, `case: mixed`), all blocks from §4.3 (incl. list renumbering, continuation lines, gap/no-gap spacing, `\` and `<br>` breaks, `<center>`), skipping of unknown and `:::form` blocks with a "has a form" notice, wrapping, preformatted cut, title and status bars, default role styles from §4.5, paging with snapshots, page-cut notice. **Text layout matches the `render -m zx --plain` golden files for the examples** (inline markup is stripped at this stage). **Done 2026-11-22, proven on the real 48K** (13 test pages + the spec examples + the live T8wn page match screen for screen; `apps/zx-vvv/host/fusetest.ps1`). Inline *text* handling (tags, entities, escapes, link text, emphasis flanking) moved here from M4; M4 keeps colours, fonts and links. Title row: page title + "?: help"; the help page shows the page size and free buffer |
 | M4 | Inline and links | Emphasis with the flanking rules, exact-name tags, the colour/flag state model, escapes and entities (incl. `&nbsp;` no-wrap), link buffering and limits, empty link text, non-http links shown but not followable, fragment-only links, bold/italic fonts, link table, focus, follow, back/history. **All golden files match, including `--links` order**. **Done 2026-11-22, proven on the real 48K**: inline colours through the ZX table, bold/italic glyphs made from the ROM font while drawing (cell = char with italic bit, attribute with bold in the FLASH bit, link id), link runs per screen (addresses found by re-reading from the screen's bookmark, no address table), focus 6/7, ENTER, B with a 512-byte history that returns to the same screen, L link list. Checked cell by cell against the reference (`golden_style.py`: colours, fonts, `--select 1`, `--links`) and by `navtest.ps1` |
 | M5 | Real network | HTTP/HTTPS, redirects, refusal of HTML and other blocked types, URL resolution, transliteration, error pages, URL entry screen. **2026-11-23:** test site `apps/zx-vvv/host/testsite.py` (every case, browsed from the 48K, expected result next to each link); own address field (255 characters, pre-filled, cursor, scrolls); refused types say VVV's "Unsupported type: not 8TML page" (cut to 32 columns). Done when every test-site case and T8wn behave on the real 48K |
-| M6 | Robustness | Chunk re-request (`C`), shorter pilots, parser fuzzing passes, progressive first-screen render |
+| M6 | Robustness | Parser fuzzing passes. **Done 2026-11-23:** `apps/zx-vvv/host/fuzztest.ps1` runs zx-vvv's real Z80 code in an emulated 48K (zxfuzz, §10). It found one real crash: history entries with a 1-byte length wrapped for 255-character addresses. That is fixed and kept as a regression. Then 100,000 fuzz sessions and every test page passed with no crash, hang or stray write, and 998 generated pages matched the reference layout row by row. Chunk re-request is dropped for now (one chunk per reply, no tape errors seen); shorter pilots and the progressive first screen moved to M9 (they need our own loader) |
 | M7 | Stylesheets | 8SS parsing, the cascade, `zx.` prefixes, `site.8ss` caching. **2026-11-23 in Fuse:** `apps/zx-vvv/zx/style.asm` (8SS parsing into per-source "partials", the cascade key by key, `zx.` beats plain within a source, other machines ignored); site.8ss fetched once per site (4 sites kept, missing too), the last page `style:` sheet kept; fetched before the page is laid out. Colours on the page background; on a coloured bg the whole page takes the bg's BRIGHT (even background, decided 2026-11-23); the focused link is drawn in `link-sel` (screen redrawn on focus moves). Checked cell by cell against the reference CLI's cascade (`testpages/styled/`, the live T8wn page) |
 | M8 | Forms | Fields, shared focus order, password masking, POST (never auto-resent) |
 | M1p | PCB rev A (runs in parallel with M1a–M1c) | `hardware/DESIGN.md` reviewed → KiCad schematic + layout pass ERC/DRC → Gerbers, BOM, CPL accepted by JLCPCB → boards arrive, USB enumerates, and TX/RX pass the M1b/M1c tests on the board |
 | M9 | Extras | Turbo loader (custom Z80 loader + ESP32 timings), with it shorter pilots and a progressive first screen (moved from M6: the ROM loader misses short pilots and returns only after a whole block), files service (tape library and SAVE storage), C3 port, enclosure |
+
+## 12a. Releases
+
+Firmware releases are on GitHub (first: **v0.8**, 2026-11-23): an ESP32-S3 image for the whole flash (first install; it erases saved Wi-Fi networks) and the app alone at 0x10000 (updates), with checksums; README "Flashing a release" covers the web flasher and esptool. **Build a release only in its own folder from `sdkconfig.defaults`** (`idf.py -B build-release -D SDKCONFIG=build-release/sdkconfig ...`): a developer's `esp32/sdkconfig` may preset a Wi-Fi network and password, which must not ship. Check the image for them before uploading.
 
 ## 13. Open questions
 
