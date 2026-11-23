@@ -15,9 +15,9 @@ REPLY is one of:
                        FLAGS bit 0 saved, bit 1 connected)
   wifi:A.B.C.D         system J success
   body:STATUS:TEXT     basic F reply (a literal \n in TEXT = new line)
-  page:FILE[@URL[@STATUS]]   http G reply: url-info (the final URL, default
-                       https://t8wn.com/index.8tml; type text/8tml), then
-                       FILE as the body with STATUS (default 200)
+  page:FILE[@URL[@STATUS]]   http G one-reply answer (flag bit 1): the
+                       final URL (default https://t8wn.com/index.8tml),
+                       type text/8tml, then FILE, with STATUS (default 200)
   httperr:CODE:MESSAGE http G error reply ([code][message])
   tap:FILE             a whole .tap (e.g. a BASIC program to LOAD)
   error:MESSAGE        error reply
@@ -96,8 +96,8 @@ def reply(spec):
         url = url or 'https://t8wn.com/index.8tml'
         with open(name, 'rb') as f:
             body = f.read()
-        return (response(3, url.encode('ascii') + b'\0text/8tml', http=int(status or 200)) +
-                response(0, body, http=int(status or 200)))
+        # one reply (http G flag bit 1, as zx-vvv asks): url 0 type 0 body
+        return response(0, url.encode('ascii') + b'\0text/8tml\0' + body, http=int(status or 200))
     if kind == 'httperr':
         code, _, msg = arg.partition(':')
         return response(1, bytes([int(code)]) + msg.encode('ascii'))

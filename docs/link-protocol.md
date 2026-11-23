@@ -279,7 +279,10 @@ take, what to ask for and what an address means stay the client's decisions.
 **`G` arguments:**
 
 - `flags`: bit 0 = convert the body from UTF-8 to ASCII
-  (`components/translit`). Other bits 0.
+  (`components/translit`). Bit 1 = **one reply** (firmware 0.7+): a single
+  `body` (type 0) whose data is `[final url] 0 [content type] 0 [body]`,
+  instead of `url-info` then `body`. It saves two tape blocks (about 4 s
+  of pilot); `max` then covers all of it. Other bits 0.
 - `max`: the most body bytes the client takes; a longer body is cut (header
   flag bit 1).
 - `url`: an absolute `http://` or `https://` address, sent as it is. The

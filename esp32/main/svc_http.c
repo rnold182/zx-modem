@@ -9,6 +9,9 @@
  * G: [flags][max lo][max hi][url] 0 [accept] 0 [refuse]
  *    -> url-info (type 3: final url, 0, content type), then body (type 0);
  *       or error [code][message].
+ *    flags bit 1: one reply instead: body (type 0) whose data is
+ *       [final url] 0 [content type] 0 [body], all within max. Every reply
+ *       costs two tape blocks of ~2 s pilot each, so this saves two.
  */
 #include <stdio.h>
 #include <string.h>
@@ -19,7 +22,7 @@
 #include "translit.h"
 #include "link.h"
 
-enum { HTTP_FLAG_ASCII = 0x01 };
+enum { HTTP_FLAG_ASCII = 0x01, HTTP_FLAG_ONE = 0x02 };
 enum { ERR_NO_WIFI = 1, ERR_BAD_REQUEST = 7 };
 
 static const char *TAG = "http";
@@ -89,9 +92,28 @@ static void http_get(const uint8_t *a, size_t n)
         info[i] = res.url[i] > 32 && res.url[i] < 127 ? res.url[i] : '?';
     info[ul] = 0;
     memcpy(info + ul + 1, res.ctype, tl);
-    link_send(RESP_URLINFO, info, ul + 1 + tl, (uint16_t)res.status);
-
     len = flags & HTTP_FLAG_ASCII ? translit_utf8(body, res.len) : res.len;
+
+    if (flags & HTTP_FLAG_ONE) {
+        /* [url] 0 [type] 0 then the body, moved up in the same buffer */
+        size_t pre = ul + 1 + tl + 1, room = max > pre ? max - pre : 0;
+
+        if (room > cap - pre)
+            room = cap - pre;
+        if (len > room) {
+            len = room;
+            res.truncated = true;
+        }
+        memmove(body + pre, body, len);
+        memcpy(body, info, ul + 1 + tl);
+        body[pre - 1] = 0;
+        len += pre;
+        link_send_ex(RESP_BODY, body, len, (uint16_t)res.status,
+                     len > 0xFFFF ? 0xFFFF : (uint16_t)len, res.truncated ? LINK_TRUNCATED : 0);
+        return;
+    }
+
+    link_send(RESP_URLINFO, info, ul + 1 + tl, (uint16_t)res.status);
     if (len > max) {
         len = max;
         res.truncated = true;

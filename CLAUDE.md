@@ -603,7 +603,7 @@ The ESP32 detects the end of the block from the following silence, so no length 
 
 | Cmd | Args | Meaning |
 |---|---|---|
-| `G` | `[flags][max:2] url \0 accept \0 refuse` | Fetch an **absolute** address (the browser resolved it). `flags` bit 0 = UTF-8 → ASCII; `max` = body limit; `accept` = the `Accept` header; `refuse` = space-separated types (`image/` = prefix). Reply: `url-info` (final URL `\0` content type) then `body`; or `error [code][text]` (1 no Wi-Fi, 2 bad address, 3 connect, 4 timeout, 5 redirects, 6 refused type, 7 bad request). Stylesheets use `G` too; reload is `G` with the current URL. |
+| `G` | `[flags][max:2] url \0 accept \0 refuse` | Fetch an **absolute** address (the browser resolved it). `flags` bit 0 = UTF-8 → ASCII, bit 1 = one reply (`body` = final URL `\0` type `\0` page: 2 tape blocks instead of 4; zx-vvv uses it since 2026-11-23 and keeps its page on an error by saving the 64 bytes an error reply could cover); `max` = body limit; `accept` = the `Accept` header; `refuse` = space-separated types (`image/` = prefix). Reply: `url-info` (final URL `\0` content type) then `body`; or `error [code][text]` (1 no Wi-Fi, 2 bad address, 3 connect, 4 timeout, 5 redirects, 6 refused type, 7 bad request). Stylesheets use `G` too; reload is `G` with the current URL. |
 | `C` | chunk index | Re-send from chunk n (after a load error) *(planned, M6)* |
 | `P` | | POST a form *(planned, M8)* |
 

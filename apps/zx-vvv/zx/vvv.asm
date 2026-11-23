@@ -29,7 +29,9 @@ A_PAGE		equ	A_BODY
 A_STAT_ERR	equ	0x4E		; bright yellow on blue
 INPUT_MAX	equ	63		; edit_line's limit
 RXBUF_SIZE	equ	400		; url-info: final address, 0, type; or an error
-HTTP_ASCII	equ	0x01		; http G flag: UTF-8 -> ASCII
+HTTP_ASCII	equ	0x01		; http G flags: UTF-8 -> ASCII,
+HTTP_ONE	equ	0x02		;   one reply: url 0 type 0 body
+SAVE_SIZE	equ	64		; page bytes an error reply may cover
 
 LIST_TOP	equ	2		; the link list: rows 2-21
 LIST_ROWS	equ	20
@@ -38,6 +40,7 @@ NAV_NEW		equ	0		; how a page is being fetched
 NAV_RELOAD	equ	1
 NAV_BACK	equ	2
 
+RESP_BODY	equ	0
 RESP_ERROR	equ	1
 RESP_URLINFO	equ	3
 
@@ -55,6 +58,7 @@ vvv:
 	ld	(hist_top),hl
 	ld	hl,0xFFFF
 	ld	(focus),hl
+	call	new_page		; an empty page, so its bookmarks exist
 	call	show_page
 	ld	hl,s_home
 	call	go_typed
@@ -244,44 +248,94 @@ fetch_url:
 	ld	c,l
 	ld	hl,req
 	call	link_request
-	ld	ix,rxbuf
-	ld	de,RXBUF_SIZE-1
+	; One reply: [final address] 0 [type] 0 [page], straight into the page
+	; buffer. Only a page replaces the page: an error reply (short) lands
+	; on its first bytes, so they are saved first and put back.
+	ld	hl,page_buf
+	ld	de,page_save
+	ld	bc,SAVE_SIZE
+	ldir
+	ld	ix,page_buf
+	ld	de,PAGE_MAX
 	call	link_receive
-	jp	nc,link_failed
-	ld	hl,rxbuf		; 0 after the data
+	jp	nc,.failed
+	cp	RESP_BODY
+	jr	z,.page
+	cp	RESP_ERROR
+	ld	hl,s_badreply
+	jr	nz,.restore
+	ld	a,b			; the error (at most SAVE_SIZE) -> rxbuf
+	or	a
+	jr	nz,.restore
+	ld	a,c
+	cp	SAVE_SIZE
+	jr	nc,.restore
+	ld	hl,page_buf
+	ld	de,rxbuf
+	or	a
+	jr	z,.e0
+	ldir
+.e0:
+	xor	a
+	ld	(de),a
+	call	page_restore
+	jp	modem_error
+.restore:
+	push	hl
+	call	page_restore
+	pop	hl
+	jp	status_error
+.page:
+	ld	hl,page_buf		; a 0 after the data: the strings end
 	add	hl,bc
 	ld	(hl),0
-	cp	RESP_ERROR
-	jp	z,modem_error
-	cp	RESP_URLINFO
-	ld	hl,s_badreply
-	jp	nz,status_error
-	; the new page: its final address, status, then the body
+	ld	(rx_end),hl
 	call	hist_on_success
-	ld	hl,rxbuf
+	ld	hl,page_buf		; the final address
 	ld	de,cur_url
 	ld	b,URL_MAX
 .copy:
 	ld	a,(hl)
+	inc	hl
 	ld	(de),a
 	or	a
-	jr	z,.copied
-	inc	hl
+	jr	z,.type
 	inc	de
 	djnz	.copy
 	xor	a
 	ld	(de),a
-.copied:
+.skip:					; (longer than URL_MAX: the rest goes)
+	ld	a,(hl)
+	inc	hl
+	or	a
+	jr	nz,.skip
+.type:
+	ld	a,(hl)			; the type, not needed: past its 0
+	inc	hl
+	or	a
+	jr	nz,.type
+	ex	de,hl			; the page, down to the start of the buffer
+	ld	hl,(rx_end)
+	or	a
+	sbc	hl,de
+	jr	nc,.len
+	ld	hl,0			; (no page after the strings)
+	ld	de,(rx_end)
+.len:
+	ld	(page_len),hl
+	ld	b,h
+	ld	c,l
+	ex	de,hl
+	ld	de,page_buf
+	ld	a,b
+	or	c
+	jr	z,.moved
+	ldir
+.moved:
 	ld	hl,(link_header+8)
 	ld	(http_status),hl
 	ld	hl,0
-	ld	(page_len),hl
 	ld	(page_no),hl
-	ld	ix,page_buf
-	ld	de,PAGE_MAX
-	call	link_receive
-	jr	nc,.body_failed
-	ld	(page_len),bc
 	ld	a,(link_header+1)
 	and	2			; cut by the modem
 	ld	(page_cut),a
@@ -297,9 +351,25 @@ fetch_url:
 	add	hl,de
 	ld	(page_no),hl
 	jp	show_page
-.body_failed:
-	push	af
-	call	new_page		; an empty page
+.failed:				; no reply, a tape error or SPACE: the page
+	push	af			; stays if its first bytes are untouched
+	ld	hl,page_buf
+	ld	de,page_save
+	ld	b,SAVE_SIZE
+.cmp:
+	ld	a,(de)
+	cp	(hl)
+	jr	nz,.lost
+	inc	hl
+	inc	de
+	djnz	.cmp
+	pop	af
+	jp	link_failed
+.lost:
+	ld	hl,0			; partly overwritten: an empty page
+	ld	(page_len),hl
+	ld	(http_status),hl
+	call	new_page
 	call	show_page
 	pop	af
 	ld	hl,s_stopped
@@ -307,6 +377,14 @@ fetch_url:
 	jp	z,status_error
 	ld	hl,s_loaderr
 	jp	status_error
+
+; page_restore: the page buffer's first bytes as they were.
+page_restore:
+	ld	hl,page_save
+	ld	de,page_buf
+	ld	bc,SAVE_SIZE
+	ldir
+	ret
 
 ; link_failed: no answer (A = LINK_ERR_*); the page stays.
 link_failed:
@@ -1298,9 +1376,10 @@ sel_left:	db	0
 sel_mode:	db	0
 sel_ptr:	dw	0
 page_cut:	db	0
+rx_end:		dw	0
 http_status:	dw	0
 
-req:		db	0x01,'G',HTTP_ASCII	; http service, G
+req:		db	0x01,'G',HTTP_ASCII|HTTP_ONE	; http service, G
 		dw	PAGE_MAX
 code_end:					; the buffers aren't loaded from tape
 req_url:	ds	URL_MAX+1+10+40		; (after req) url 0 accept 0 refuse
@@ -1310,6 +1389,7 @@ cur_cells:	ds	CELL*WIDTH
 pend_cells:	ds	CELL*WIDTH
 word_cells:	ds	CELL*(WIDTH+2)
 rowbuf:		ds	CELL*WIDTH
+page_save:	ds	SAVE_SIZE		; an error reply's place in the page
 title_buf:	ds	32
 title_disp:	ds	16
 page_buf:					; the page, up to APP_END
