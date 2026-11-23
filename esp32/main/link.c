@@ -111,13 +111,18 @@ void link_send_error(const char *msg)
 
 void link_send_error_code(uint8_t code, const char *msg)
 {
+    link_send_error_http(code, msg, 0);
+}
+
+void link_send_error_http(uint8_t code, const char *msg, uint16_t http)
+{
     uint8_t d[1 + 40];
     size_t n = strlen(msg) < sizeof d - 1 ? strlen(msg) : sizeof d - 1;
 
-    ESP_LOGW(TAG, "error reply: %u %s", code, msg);
+    ESP_LOGW(TAG, "error reply: %u %s (HTTP %u)", code, msg, http);
     d[0] = code;
     memcpy(d + 1, msg, n);
-    link_send(RESP_ERROR, d, n + 1, 0);
+    link_send(RESP_ERROR, d, n + 1, http);
 }
 
 /* V: modem status, then the app list for the menu:

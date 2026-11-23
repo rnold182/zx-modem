@@ -1,0 +1,7 @@
+# Sessions the fuzzer found failing, replayed by fuzztest.ps1 (zxfuzz run).
+# page [seed] [site sheet|-] [page sheet|-]   (paths relative to this folder)
+#
+# A 255-character final address made a 260-byte history entry; its 1-byte
+# length wrapped, and the next Back or full history ran an LDIR over the
+# program (fixed 2026-11-23: 2-byte entry lengths).
+history-longurl.8tml 11000521 - history-longurl.sheet.8ss

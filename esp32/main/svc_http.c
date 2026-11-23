@@ -79,7 +79,10 @@ static void http_get(const uint8_t *a, size_t n)
     }
     ESP_LOGI(TAG, "G %s (accept '%s', refuse '%s', max %u)", url, accept, refuse, (unsigned)max);
     if (fetch_get(url, &opts, body, cap, &res, msg, sizeof msg) != ESP_OK) {
-        link_send_error_code((uint8_t)res.err, msg);
+        /* a refused type keeps the server's status: a 404 sent as an HTML
+         * page is a 404 to the reader, not a type problem */
+        link_send_error_http((uint8_t)res.err, msg,
+                             res.err == FETCH_ERR_REFUSED ? (uint16_t)res.status : 0);
         return;
     }
 

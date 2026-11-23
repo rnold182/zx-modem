@@ -47,7 +47,8 @@ if(SJASMPLUS)
     add_custom_command(
         OUTPUT ${ZXMENU_TAP}
         COMMAND ${SJASMPLUS} --nologo --inc=${CMAKE_SOURCE_DIR}/zx/lib
-                --inc=${CMAKE_SOURCE_DIR}/sdk ${CMAKE_SOURCE_DIR}/zx/menu/main.asm
+                --inc=${CMAKE_SOURCE_DIR}/sdk --lst=menu.lst --sym=menu.sym
+                ${CMAKE_SOURCE_DIR}/zx/menu/main.asm
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
         DEPENDS ${CMAKE_SOURCE_DIR}/zx/menu/main.asm ${ZX_LIB_SRCS}
         COMMENT "Assembling zx/menu -> zxmenu.tap"
@@ -78,9 +79,10 @@ if(SJASMPLUS)
     add_custom_command(
         OUTPUT ${VVV_BIN}
         COMMAND ${SJASMPLUS} --nologo --inc=${CMAKE_SOURCE_DIR}/sdk --inc=${VVV_DIR}/zx
-                ${VVV_DIR}/zx/vvv.asm
+                --lst=vvv.lst --sym=vvv.sym ${VVV_DIR}/zx/vvv.asm
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-        DEPENDS ${VVV_DIR}/zx/vvv.asm ${VVV_DIR}/zx/url.asm ${VVV_DIR}/zx/render.asm ${ZX_LIB_SRCS}
+        DEPENDS ${VVV_DIR}/zx/vvv.asm ${VVV_DIR}/zx/url.asm ${VVV_DIR}/zx/render.asm
+                ${VVV_DIR}/zx/style.asm ${ZX_LIB_SRCS}
         COMMENT "Assembling apps/zx-vvv -> vvv.bin"
         VERBATIM)
     add_custom_command(

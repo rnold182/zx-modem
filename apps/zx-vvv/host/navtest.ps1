@@ -4,7 +4,8 @@
 #   links.8tml, screen 3 -> focus a link (6), follow it (ENTER) -> blocks.8tml
 #   -> B: back to links.8tml at screen 3 -> L, pick link 2 -> inline.8tml
 #   -> B: back to links.8tml at screen 3 again -> R gets an error reply:
-#   the page must stay exactly as it was.
+#   the page must stay exactly as it was. Then two refused types: a 404
+#   sent as HTML says the status, HTML with 200 says the type.
 # Each step is checked on the screen (title, status counter, focused link).
 #
 #   powershell -File apps/zx-vvv/host/navtest.ps1
@@ -23,7 +24,7 @@ $replies = @('info:HomeNet', "overlay:$Build\vvv.bin",
     "page:$T\links.8tml@https://test.example/site/links.8tml",
     "page:$T\inline.8tml@https://test.example/site/part1b.8tml",
     "page:$T\links.8tml@https://test.example/site/links.8tml",
-    'httperr:3:Could not connect')
+    'httperr:3:Could not connect', 'refused:404', 'refused:200')
 & python "$Root\host\tools\fake_reply.py" "$Build\zxmenu.tap" "$Build\navtest.tap" @replies
 if ($LASTEXITCODE) { throw 'fake_reply failed' }
 
@@ -70,6 +71,11 @@ Expect 'error shown' 23 '^Could not connect'
 Expect 'page kept' 0 'Links everywh'
 if (((Screen)[1..22] -join "`n") -eq $before) { Write-Output 'ok    page text unchanged after the error' }
 else { Write-Output 'FAIL  page text changed after the error'; $script:bad++ }
+Send-FuseKeyWait 0x52 | Out-Null; Wait-FusePage | Out-Null           # R: a 404 sent as HTML
+Expect 'refused 404 shows the status' 23 '^Server says HTTP 404'
+Expect 'page kept' 0 'Links everywh'
+Send-FuseKeyWait 0x52 | Out-Null; Wait-FusePage | Out-Null           # R: HTML with 200
+Expect 'refused 200 shows the type' 23 '^Unsupported type'
 Stop-Fuse
 Write-Output $(if ($script:bad) { "$script:bad step(s) failed" } else { 'all steps pass' })
 exit $script:bad

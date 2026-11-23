@@ -19,6 +19,8 @@ REPLY is one of:
                        final URL (default https://t8wn.com/index.8tml),
                        type text/8tml, then FILE, with STATUS (default 200)
   httperr:CODE:MESSAGE http G error reply ([code][message])
+  refused:STATUS[:TYPE] http G error 6 (a refused type, default text/html),
+                       the server's STATUS in the header (firmware 0.8)
   sheet:FILE[@URL]     http G one-reply answer for a stylesheet (200)
   nosheet              http G one-reply answer: no stylesheet there (404)
   tap:FILE             a whole .tap (e.g. a BASIC program to LOAD)
@@ -115,6 +117,9 @@ def reply(spec):
     if kind == 'httperr':
         code, _, msg = arg.partition(':')
         return response(1, bytes([int(code)]) + msg.encode('ascii'))
+    if kind == 'refused':
+        status, _, ctype = arg.partition(':')
+        return response(1, bytes([6]) + (ctype or 'text/html').encode('ascii'), http=int(status))
     if kind == 'tap':
         with open(arg, 'rb') as f:
             return f.read()

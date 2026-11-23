@@ -562,7 +562,7 @@ Addresses (resolution, `index.8tml`, fragments, typed `host/path`) are done by t
 - Average speed is roughly 1365 bps, about 170 B/s. A 4 KB page takes ~25 s, which is the motivation for a turbo loader later.
 
 **Optimizations to test**
-- **Shorter pilots for ESP32 replies: not with the ROM loader.** After the first edge LD-BYTES waits almost 1 s (`LD-WAIT`, 0571), then needs 256 pairs of pilot pulses, so a pilot under ~2200 pulses is missed (found on real hardware, 2026-11-18; Fuse's tape traps hide it). Shorter pilots need our own loader (M6/M9).
+- **Shorter pilots for ESP32 replies: not with the ROM loader.** After the first edge LD-BYTES waits almost 1 s (`LD-WAIT`, 0571), then needs 256 pairs of pilot pulses, so a pilot under ~2200 pulses is missed (found on real hardware, 2026-11-18; Fuse's tape traps hide it). Shorter pilots need our own loader (M9).
 - **Signal polarity doesn't matter.** The loader detects edges.
 
 **`.tap` file format:** for each block, a 2-byte little-endian length, then the block itself (flag + payload + checksum).
@@ -605,7 +605,7 @@ The ESP32 detects the end of the block from the following silence, so no length 
 | Cmd | Args | Meaning |
 |---|---|---|
 | `G` | `[flags][max:2] url \0 accept \0 refuse` | Fetch an **absolute** address (the browser resolved it). `flags` bit 0 = UTF-8 → ASCII, bit 1 = one reply (`body` = final URL `\0` type `\0` page: 2 tape blocks instead of 4; zx-vvv uses it since 2026-11-23 and keeps its page on an error by saving the 64 bytes an error reply could cover); `max` = body limit; `accept` = the `Accept` header; `refuse` = space-separated types (`image/` = prefix). Reply: `url-info` (final URL `\0` content type) then `body`; or `error [code][text]` (1 no Wi-Fi, 2 bad address, 3 connect, 4 timeout, 5 redirects, 6 refused type, 7 bad request). Stylesheets use `G` too; reload is `G` with the current URL. |
-| `C` | chunk index | Re-send from chunk n (after a load error) *(planned, M6)* |
+| `C` | chunk index | Re-send from chunk n (after a load error) *(not planned while every reply is one chunk and tape errors don't show up; decided 2026-11-23)* |
 | `P` | | POST a form *(planned, M8)* |
 
 ### 7.4 Response
@@ -726,7 +726,7 @@ ESP32 power: its own USB supply. Never from the Spectrum (the 48K's 7805 already
 - **Test pages:**
   - `apps/zx-vvv/spec/spec/examples/*.8tml` first.
   - Then `apps/zx-vvv/testpages/` with edge cases taken from the spec text: list renumbering, `1984\.`, `<3` and `a < b`, `5 * 3`, an unclosed header, an unclosed pre block or `:::` block at EOF, `#` comments in the header, `####` headings, `\` hard breaks, `&nbsp;`, `&#200;`, `[](url)`, an 81-character link text, a 256-character URL, a `---` block whose first key isn't `8tml`, a higher `8tml:` version, and a form on a client without forms.
-  - Then hostile inputs: huge lines, bytes ≥128, an empty file, NULs, endless `[[[[`.
+  - Then hostile inputs: huge lines, bytes ≥128, an empty file, NULs, endless `[[[[`. These are `apps/zx-vvv/testpages/hostile/` (written by `host/fuzz/mkhostile.py`), with `regress.txt` replaying sessions the fuzzer once broke.
 - **Every test page must pass `tools/8tml check`.** Hostile pages are the exception: record the expected warnings instead.
 - **Golden files:** for each test page, store `render -m zx --plain --links` output as `apps/zx-vvv/testpages/<name>.zx.txt`.
   - The Spectrum build gets a debug option that mirrors the content area into a 32×22 RAM text buffer and dumps it, for example via a Fuse memory dump or by saving it over MIC.
@@ -734,7 +734,14 @@ ESP32 power: its own USB supply. Never from the Spectrum (the 48K's 7805 already
   - **Paging:** the golden file is one long column, while the Spectrum shows 22-line screens. Compare the concatenation of the screens.
   - The reference prints a caption line first; strip it before comparing.
   - Colours are not compared, because of the palette issue in §6.6.
-- **The "never crash or hang" rule is a test requirement:** fuzz the parser. Once it is stable, a C model of the Z80 parser on the host could also be fuzzed against `tml/parser.py`.
+- **The "never crash or hang" rule is a test requirement:** `apps/zx-vvv/host/fuzztest.ps1` (M6). No C model was needed: `zxfuzz` runs zx-vvv's real Z80 code in an emulated 48K (the vendored `host/third_party/chips/z80.h`, the real ROM, the menu, `vvv.bin`). It plays the modem and the keys from a seed, and catches:
+  - running anything but an instruction (a code map made from the sjasmplus listings);
+  - writes to code, the ROM, the API table or outside the app's memory;
+  - the stack going too deep;
+  - a hang (2 minutes without asking for a key);
+  - replies loaded outside the buffers.
+
+  `host/fuzz/difftest.py` compares the screens of generated valid pages with `8tml render -m zx --plain`.
 
 ## 11. Repo layout
 
@@ -774,7 +781,7 @@ ESP32 power: its own USB supply. Never from the Spectrum (the 48K's 7805 already
 | M7 | Stylesheets | 8SS parsing, the cascade, `zx.` prefixes, `site.8ss` caching. **2026-11-23 in Fuse:** `apps/zx-vvv/zx/style.asm` (8SS parsing into per-source "partials", the cascade key by key, `zx.` beats plain within a source, other machines ignored); site.8ss fetched once per site (4 sites kept, missing too), the last page `style:` sheet kept; fetched before the page is laid out. Colours on the page background; on a coloured bg the whole page takes the bg's BRIGHT (even background, decided 2026-11-23); the focused link is drawn in `link-sel` (screen redrawn on focus moves). Checked cell by cell against the reference CLI's cascade (`testpages/styled/`, the live T8wn page) |
 | M8 | Forms | Fields, shared focus order, password masking, POST (never auto-resent) |
 | M1p | PCB rev A (runs in parallel with M1a–M1c) | `hardware/DESIGN.md` reviewed → KiCad schematic + layout pass ERC/DRC → Gerbers, BOM, CPL accepted by JLCPCB → boards arrive, USB enumerates, and TX/RX pass the M1b/M1c tests on the board |
-| M9 | Extras | Turbo loader (custom Z80 loader + ESP32 timings), files service (tape library and SAVE storage), C3 port, enclosure |
+| M9 | Extras | Turbo loader (custom Z80 loader + ESP32 timings), with it shorter pilots and a progressive first screen (moved from M6: the ROM loader misses short pilots and returns only after a whole block), files service (tape library and SAVE storage), C3 port, enclosure |
 
 ## 13. Open questions
 

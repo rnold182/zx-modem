@@ -317,6 +317,11 @@ short ASCII message:
 | 6 | the content type | refused by `refuse` |
 | 7 | `Bad request` | arguments missing |
 
+For code 6 the header's `http_status` is the status the server answered
+with (firmware 0.8 on; 0 before): a client can tell "this server sent an
+HTML error page" (e.g. 404) from "this page is in a type I don't read"
+(200). For the other codes it is 0.
+
 ## 7. Compatibility rules
 
 - **Within version 1** the modem may add services, commands, response types

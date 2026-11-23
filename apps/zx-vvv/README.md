@@ -105,7 +105,12 @@ that link. Details: the comments in `zx/render.asm`.
 | `host/edittest.ps1` | the address field: editing, scrolling, loading what was typed |
 | `host/testsite.py` | the network test site (M5): every case, to browse from the 48K |
 | `host/fusectl.ps1` | runs Fuse off-screen without taking the keyboard focus |
-| `testpages/` | test pages and their expected files (`.zx.txt`, `.expect.txt`, `.style.json`, `.sel.json`, `.links.txt`); `styled/` has its own `site.8ss` and a page sheet |
+| `host/sheettest.ps1` | page stylesheets: two sheets one after the other, a reload (Fuse) |
+| `host/fuzztest.ps1` | robustness (M6): every test page in scripted sessions, fuzzing, the layout against the reference |
+| `host/fuzz/zxfuzz.c` | runs zx-vvv's real code in an emulated 48K (vendored `host/third_party/chips/z80.h`): plays the modem and the keys, catches crashes, hangs and stray writes |
+| `host/fuzz/difftest.py` | generated valid pages: zx-vvv's screens against `8tml render -m zx --plain` |
+| `host/fuzz/mkmap.py`, `mkhostile.py` | the code map from the listings (what may run, what mustn't be written); the hostile pages |
+| `testpages/` | test pages and their expected files (`.zx.txt`, `.expect.txt`, `.style.json`, `.sel.json`, `.links.txt`); `styled/` has its own `site.8ss` and a page sheet; `sheets/` is sheettest's; `hostile/` holds pages no browser should choke on (not valid 8TML) |
 | `spec/` | the 8TML 1 spec package from its author, unzipped as-is (read-only). Not in the public repo: see `spec/GET-THE-SPEC.md` |
 | `docs/` | notes (`website-notes.md`: what t8wn.com adds, the live server) |
 
@@ -137,6 +142,22 @@ never take the keyboard focus: the PC stays usable while they run.
   accents, chunked and connection-close bodies, a page too big, a server
   too slow, unreachable hosts, relative links of every form. It logs each
   request and its answer. HTTPS: the live T8wn site.
+- **Robustness (M6):** `powershell -File apps/zx-vvv/host/fuzztest.ps1`
+  (no Fuse; a few minutes on all cores). `zxfuzz` boots the real 48K ROM,
+  loads the menu and `vvv.bin`, and runs zx-vvv as the menu does, playing
+  the modem (pages, stylesheets, errors, broken and cut replies, odd final
+  addresses) and the keyboard (links, screens, L, B, R, H, the address
+  field, then Q) from a seed. A run fails if the CPU runs anything but an
+  instruction (the code map comes from the listings), writes to code, the
+  ROM, the API table or outside the app's memory, takes the stack too deep,
+  goes 2 minutes without asking for a key, or loads a reply outside its
+  buffers. It runs every test page, then fuzzes (mutated and generated
+  pages and sheets), then compares the layout of generated valid pages
+  with the reference tool, row by row. One input by hand:
+  `build/host/zxfuzz.exe run page.8tml --seed 3 -v` (every key, request
+  and reply). Failing inputs are saved in `build/fuzz-out` (page, sheets,
+  seed) to replay with `run`.
+- **Stylesheets:** `powershell -File apps/zx-vvv/host/sheettest.ps1`.
 - **The address field:** `powershell -File apps/zx-vvv/host/edittest.ps1`.
 - **Links and history:** `powershell -File apps/zx-vvv/host/navtest.ps1`
   follows a link from screen 3, comes back with B to screen 3, then follows

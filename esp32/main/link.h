@@ -7,7 +7,7 @@
 #include "esp_err.h"
 
 #define FW_VERSION_MAJOR 0
-#define FW_VERSION_MINOR 7
+#define FW_VERSION_MINOR 8
 #define PROTO_VERSION    1
 
 /* The tape task: the only user of the transmitter. It answers requests and
@@ -36,6 +36,9 @@ void link_send(uint8_t type, const uint8_t *data, size_t len, uint16_t http);
 void link_send_error(const char *msg);
 /* An error whose data starts with a service's code byte (1-31). */
 void link_send_error_code(uint8_t code, const char *msg);
+/* The same, with the HTTP status in the header (a refused type: the status
+ * the server answered with, e.g. 404 with an HTML error page). */
+void link_send_error_http(uint8_t code, const char *msg, uint16_t http);
 
 /* The http service (svc_http.c). */
 void svc_http(uint8_t cmd, const uint8_t *args, size_t nargs);

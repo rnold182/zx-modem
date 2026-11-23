@@ -1,0 +1,10 @@
+# The test site's style: a coloured background, like T8wn's town styleèbg: blue
+border: blue
+text: lightgrey
+h1: white center
+h2: yellow
+h3: white upper
+em: cyan
+sßrong: white
+link: yellow
+link-sel: aaaaaaaaaaaa

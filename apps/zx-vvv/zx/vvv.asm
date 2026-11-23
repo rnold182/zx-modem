@@ -641,7 +641,27 @@ modem_error:
 	djnz	.find
 .found:
 	jp	status_error
-.type:
+.type:					; a refused type: if the server's status
+	ld	hl,(link_header+8)	; wasn't 2xx (firmware 0.8 sends it), that
+	ld	a,h			; is the news, e.g. a 404 as an HTML page
+	or	l
+	jr	z,.unsup		; (0: an older modem, or none)
+	ld	de,200
+	or	a
+	sbc	hl,de
+	jr	c,.http
+	ld	de,100
+	sbc	hl,de
+	jr	c,.unsup		; 2xx: the type is the problem
+.http:
+	ld	b,STATUS_ROW
+	ld	a,A_STAT_ERR
+	call	scr_clear_row
+	ld	hl,s_server
+	call	scr_print
+	ld	hl,(link_header+8)
+	jp	print_status_code
+.unsup:
 	ld	hl,s_unsupported	; VVV's words (shortened to fit 32 columns)
 	jp	status_error
 .text:						; unknown code: the modem's text
@@ -1566,8 +1586,9 @@ mul_hl_de:
 	ret
 
 ; ---- History ----------------------------------------------------------------
-; hist_buf holds entries [address][0][screen:2][entry length], newest last;
-; when it is full the oldest go.
+; hist_buf holds entries [address][0][screen:2][entry length:2], newest
+; last; when it is full the oldest go. (The length takes 2 bytes: an
+; address of 255 characters makes an entry of 260.)
 
 ; hist_on_success: a new page is arriving: remember the one we leave (not
 ; for a reload; going back drops the entry we went back to).
@@ -1582,7 +1603,7 @@ hist_on_success:
 	ret	z			; nothing shown yet
 	ld	hl,cur_url
 	call	u_strlen		; BC = length
-	ld	hl,4
+	ld	hl,5
 	add	hl,bc
 	ld	(hist_len),hl
 .room:
@@ -1596,7 +1617,7 @@ hist_on_success:
 	jr	z,.fits
 	ld	hl,hist_buf		; drop the oldest
 	call	u_strlen
-	ld	hl,4
+	ld	hl,5
 	add	hl,bc
 	ex	de,hl			; DE = its length
 	ld	hl,(hist_top)
@@ -1630,6 +1651,9 @@ hist_on_success:
 	ld	a,(hist_len)
 	ld	(hl),a
 	inc	hl
+	ld	a,(hist_len+1)
+	ld	(hl),a
+	inc	hl
 	ld	(hist_top),hl
 	ret
 
@@ -1642,6 +1666,8 @@ hist_peek:
 	ret	z			; empty (no carry)
 	ld	hl,(hist_top)
 	dec	hl
+	ld	d,(hl)			; the entry's length
+	dec	hl
 	ld	e,(hl)
 	dec	hl
 	ld	a,(hl)
@@ -1650,7 +1676,6 @@ hist_peek:
 	ld	h,a
 	ld	(back_screen),hl
 	ld	hl,(hist_top)
-	ld	d,0
 	or	a
 	sbc	hl,de			; the entry's start
 	scf
@@ -1665,9 +1690,10 @@ hist_drop:
 	ret	z
 	ld	hl,(hist_top)
 	dec	hl
+	ld	d,(hl)			; the entry's length
+	dec	hl
 	ld	e,(hl)
-	ld	d,0
-	inc	hl
+	ld	hl,(hist_top)
 	or	a
 	sbc	hl,de
 	ld	(hist_top),hl
