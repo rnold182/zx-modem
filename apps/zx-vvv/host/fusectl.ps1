@@ -62,6 +62,8 @@ public class FuseCtl {
 "@
 
 function Start-FuseHidden($tap) {
+    # A missing tape would make Fuse show an error box on the desktop.
+    if (-not (Test-Path $tap)) { throw "no tape: $tap" }
     $id = [FuseCtl]::StartHidden("$env:LOCALAPPDATA\Programs\fuse\fuse.exe",
                                  "--machine 48 --no-loading-sound --tape `"$tap`"")
     $script:fuseProc = Get-Process -Id $id

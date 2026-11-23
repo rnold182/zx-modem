@@ -40,6 +40,12 @@ Start-FuseHidden "$Build\navtest.tap"
 Start-Sleep -Seconds 20
 Send-FuseKeyWait 0x31 | Out-Null; Wait-FusePage | Out-Null           # zx-vvv: links.8tml
 Expect 'first page' 0 'Links everywh'
+Send-FuseKeyWait 0x36 | Out-Null                                      # 6 6 6: the third link
+Send-FuseKeyWait 0x36 | Out-Null
+Send-FuseKeyWait 0x36 | Out-Null
+Expect 'third link focused' 23 '^\.\./up/part1c\.8tml'
+Send-FuseKeyWait 0x37 | Out-Null                                      # 7: back one
+Expect '7 goes to the previous link' 23 '^part1b\.8tml'
 Send-FuseKeyWait 0x4E | Out-Null; Send-FuseKeyWait 0x4E | Out-Null    # N N: screen 3
 Expect 'screen 3' 23 ' 3/\d+$'
 Send-FuseKeyWait 0x36 | Out-Null                                      # 6: a link

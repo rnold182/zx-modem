@@ -94,7 +94,12 @@ def reply(spec):
         status, _, text = arg.partition(':')
         return response(0, text.replace('\\n', '\n').encode('ascii'), http=int(status))
     if kind == 'page':
-        name, url, status = (arg.split('@') + [None, None])[:3]
+        # FILE@URL@STATUS: the URL may hold '@' itself (t8wn.com/@name/)
+        name, _, rest = arg.partition('@')
+        url, status = rest, None
+        head, sep, tail = rest.rpartition('@')
+        if sep and tail.isdigit():
+            url, status = head, tail
         url = url or 'https://t8wn.com/index.8tml'
         with open(name, 'rb') as f:
             body = f.read()

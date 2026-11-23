@@ -1066,20 +1066,20 @@ runs_next:
 
 ; run_has: carry if link HL has a run on this screen.
 run_has:
-	ex	de,hl
+	ld	(rh_link),hl		; (runs_next uses DE)
 	call	runs_start
 .l:
 	jr	nz,.go
 	or	a			; none: no carry
 	ret
 .go:
-	ld	a,(hl)
-	cp	e
+	ld	a,(rh_link)
+	cp	(hl)
 	jr	nz,.n
 	inc	hl
-	ld	a,(hl)
-	dec	hl
-	cp	d
+	ld	a,(rh_link+1)
+	cp	(hl)
+	dec	hl			; (flags unchanged)
 	scf
 	ret	z
 .n:
@@ -1409,15 +1409,8 @@ page_sheet_url:
 	ld	a,(hd_stylelen)
 	or	a
 	ret	z
-	ld	c,a			; the value, 0-terminated, in input
-	ld	b,0
-	ld	hl,(hd_style)
-	ld	de,input
-	ldir
-	xor	a
-	ld	(de),a
-	ld	hl,cur_url
-	ld	de,input
+	ld	hl,cur_url		; (parse_header copied the value)
+	ld	de,hd_style
 	call	url_resolve
 	or	a
 	ret	nz			; (no carry)
@@ -1432,8 +1425,9 @@ page_sheet_known:
 	ld	hl,url_out
 	ld	de,ps_url
 	call	str_eq
-	ret	nz
 	scf
+	ret	z
+	ccf				; (str_eq's compare may leave carry set)
 	ret
 
 ; sheet_get: fetch url_out as a stylesheet into the partial at BC: parsed
@@ -1762,6 +1756,7 @@ page_end:	dw	page_buf
 page_no:	dw	0
 focus:		dw	0xFFFF			; the focused link's number (0xFFFF: none)
 fbest:		dw	0
+rh_link:	dw	0			; run_has: the link looked for
 find_no:	dw	0
 list_first:	dw	0
 list_sel:	dw	0

@@ -175,10 +175,18 @@ parse_header:
 	ld	de,w_style		; the page's stylesheet: kept for styles_fetch
 	call	hd_key_is
 	jr	nz,.case
-	ld	hl,(hd_v)
-	ld	(hd_style),hl
+	ld	hl,(hd_v)		; copied now: the line buffer gets the next line
 	ld	a,(hd_vlen)
 	ld	(hd_stylelen),a
+	ld	de,hd_style
+	ld	c,a
+	ld	b,0
+	or	a
+	jr	z,.s0
+	ldir
+.s0:
+	xor	a
+	ld	(de),a
 	jp	.next
 .case:
 	ld	de,w_case
@@ -2572,7 +2580,7 @@ hd_k:		dw	0
 hd_klen:	db	0
 hd_v:		dw	0
 hd_vlen:	db	0
-hd_style:	dw	0			; the header's style: value
+hd_style	equ	input			; the header's style: value, 0-terminated
 hd_stylelen:	db	0
 
 src_ptr:	dw	0
