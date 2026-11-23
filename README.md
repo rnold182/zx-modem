@@ -62,7 +62,8 @@ request takes about 6 s and a one-line web reply about 10 s. Details:
 ## Using it
 
 1. Build the board ([hardware](docs/hardware.md)) or wire an ESP32 dev board
-   to the EAR/MIC sockets, and flash the firmware (below).
+   to the EAR/MIC sockets, and flash the firmware
+   ([a release](#flashing-a-release), or [build it](#building)).
 2. On the Spectrum type `LOAD ""`, then press **PLAY** on the modem. The
    ZX MODEM menu loads (about 20 s) and shows the modem's status.
 3. Menu keys: 6/7 or the cursor keys move, ENTER or a digit chooses, R
@@ -99,28 +100,34 @@ can fetch a web page through it ([App API §5](docs/app-api.md#5-basic-programs)
 `https://` works too (the ESP32 does TLS). `RANDOMIZE USR 32768` goes back to
 the menu. A longer example: [`zx/basic/fetchdemo.asm`](zx/basic/fetchdemo.asm).
 
-## In progress: zx-vvv, an 8TML browser
+## zx-vvv, an 8TML browser
 
 [8TML](https://t8wn.com/8tml/) is a tiny markup language for a retro web:
 plain ASCII pages, readable on 8-bit machines, a lot like Markdown. **zx-vvv**
 is the official ZX Spectrum port of VVV, its reference browser, running
-on the 48K through this modem ([`apps/zx-vvv/`](apps/zx-vvv/)). Today it
-fetches pages and lays them out itself, screen for screen the same as the
-8TML reference tool; colours, fonts and following links are next.
+on the 48K through this modem ([`apps/zx-vvv/`](apps/zx-vvv/)). It is
+item 1 in the menu. It lays pages out screen for screen the same as the
+8TML reference tool, in Spectrum colours, with bold and italic glyphs made
+from the ROM font.
 
 - **The Spectrum is the browser:** it resolves links, decides what to
   fetch and refuse, and parses the page itself (headings, paragraphs,
   lists, quotes, preformatted text, emphasis, colour tags, links), laid
-  out in 32 columns; Spectrum colours and bold and italic fonts come next.
-- **Links and history:** cursor keys move between links, ENTER follows one,
-  B goes back; G types an address.
+  out in 32 columns.
+- **Links and history:** 6/7 or the cursor keys move between links, ENTER
+  follows one, B goes back to the screen you were on, L lists the page's
+  links, G types an address, ? shows all the keys.
+- **Stylesheets:** a site's `site.8ss` and a page's own sheet, with
+  `zx.` keys for the Spectrum.
 - **The modem stays a modem:** a general [http service](docs/link-protocol.md#64-http-0x01)
   does HTTPS, redirects, the content-type filter the browser asks for and
   UTF-8 to ASCII. It knows nothing about 8TML.
-- **Later:** stylesheets (`site.8ss`) and forms. The first home page:
-  T8wn's own, which is served as live 8TML.
+- **Tested hard:** every layout is checked against the reference tool,
+  and a fuzzer runs the browser's own Z80 code in an emulated 48K on
+  thousands of broken pages (`apps/zx-vvv/host/fuzztest.ps1`).
+- **Later:** forms. The home page is T8wn's own, served as live 8TML.
 
-A page and how zx-vvv will lay it out (the layout comes from the 8TML
+A page and how zx-vvv lays it out (the layout comes from the 8TML
 reference tool, the browser's test oracle):
 
 ```
@@ -138,6 +145,47 @@ markup: *emphasis*, <yellow>colours</>,
 * Parsed on the Spectrum itself
 * 32 columns, Spectrum colours
 ```
+
+## Flashing a release
+
+[Releases](https://github.com/rnold182/zx-modem/releases) have the firmware
+for the **ESP32-S3** (the SuperMini on the carrier board) ready to flash,
+with the menu, Wi-Fi Setup and zx-vvv built in. No Wi-Fi network is built
+in: you choose one from the Spectrum (Wi-Fi Setup in the menu).
+
+| File | What |
+|---|---|
+| `zx-modem-<version>-esp32s3.bin` | the whole flash: for a first install. **Erases saved Wi-Fi networks.** |
+| `zx-modem-<version>-esp32s3-app.bin` | the firmware alone: for updating, keeps saved networks |
+| `SHA256SUMS.txt` | checksums |
+
+Connect the board with USB. If the computer doesn't find it, hold **BOOT**
+on the SuperMini while plugging it in (that starts its USB loader), then
+let go.
+
+**In the browser** (Chrome or Edge, which can talk to serial ports):
+
+1. Open [Espressif's web flasher](https://espressif.github.io/esptool-js/),
+   set the baud rate to 460800 and click **Connect**, then pick the board's
+   port.
+2. First install: choose `zx-modem-<version>-esp32s3.bin` at flash address
+   **0x0**. Update: `zx-modem-<version>-esp32s3-app.bin` at **0x10000**.
+3. Click **Program**, wait for it to finish, then press **RESET** on the
+   board (or unplug it and plug it back in).
+
+**From the command line**, with [esptool](https://docs.espressif.com/projects/esptool/)
+(`pip install esptool`), `COM5` being your port (`/dev/ttyACM0` on Linux,
+`/dev/cu.usbmodem…` on a Mac):
+
+```
+esptool.py --chip esp32s3 -p COM5 -b 460800 write_flash 0x0 zx-modem-0.8-esp32s3.bin
+esptool.py --chip esp32s3 -p COM5 -b 460800 write_flash 0x10000 zx-modem-0.8-esp32s3-app.bin
+```
+
+The first line is a first install, the second an update (esptool 5 also
+takes `esptool` and `write-flash`). Then on the Spectrum: `LOAD ""` and PLAY
+on the modem ([Using it](#using-it)). The menu's status screen shows the
+firmware version. A classic ESP32 dev board needs a build of its own (below).
 
 ## Building
 
@@ -211,6 +259,9 @@ detailed design document.
   [Zimodem](https://github.com/bozimmerman/Zimodem) by Bo Zimmerman.
 - ROM routine addresses were checked against
   [the 48K ROM disassembly](https://skoolkid.github.io/rom/).
+- zx-vvv's fuzzer runs on Andre Weissflog's Z80 emulator from
+  [floooh/chips](https://github.com/floooh/chips) (zlib licence,
+  `host/third_party/chips/`).
 
 ## License
 
