@@ -717,10 +717,6 @@ show_status:
 	ld	a,(too_long)
 	or	b
 	jr	nz,.note
-	ld	hl,s_form
-	ld	a,(has_form)
-	or	a
-	jr	nz,.note
 	ld	hl,s_newer
 	ld	a,(newer)
 	or	a
@@ -970,6 +966,13 @@ key_enter:
 	ld	a,(focus+1)
 	inc	a
 	jp	z,main_loop		; none
+	ld	a,(found_field)
+	or	a
+	jr	z,.link
+	ld	hl,s_field_soon		; M8b: editing and choosing
+	call	status_error
+	jp	main_loop
+.link:
 	ld	hl,cur_url
 	ld	de,found_url
 	call	go_resolve
@@ -984,6 +987,7 @@ focus_set:
 	jr	c,.found
 	xor	a
 	ld	(found_url),a
+	ld	(found_field),a
 .found:
 	jp	show_page		; drawn again, the link in link-sel
 
@@ -1122,6 +1126,8 @@ link_hook:
 	ld	de,found_url
 	ld	bc,256
 	ldir
+	ld	a,(lk_is_field)		; a link or a form field
+	ld	(found_field),a
 	ld	a,1
 	ld	(found),a
 	jp	render_abort
@@ -1297,6 +1303,13 @@ key_list:
 	call	render_find
 	jp	nc,.back
 	call	show_page		; the page behind, then follow
+	ld	a,(found_field)
+	or	a
+	jr	z,.golink
+	ld	hl,s_field_soon
+	call	status_error
+	jp	main_loop
+.golink:
 	ld	hl,cur_url
 	ld	de,found_url
 	call	go_resolve
@@ -1723,7 +1736,7 @@ s_keyhint:	db	"?: help",0
 s_pagesize:	db	"Page: ",0
 s_bytes:	db	" bytes, ",0
 s_free:		db	" free",0
-s_form:		db	"Form not shown (yet)",0
+s_field_soon:	db	"Fields can't be filled in yet",0
 s_newer:	db	"Newer 8TML version",0
 help_lines:
 		db	2,1,A_MSG,"Keys",0
@@ -1782,6 +1795,7 @@ page_end:	dw	page_buf
 page_no:	dw	0
 focus:		dw	0xFFFF			; the focused link's number (0xFFFF: none)
 fbest:		dw	0
+found_field:	db	0			; the focused one is a form field
 rh_link:	dw	0			; run_has: the link looked for
 find_no:	dw	0
 list_first:	dw	0

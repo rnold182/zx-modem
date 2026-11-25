@@ -1,0 +1,18 @@
+a.8tml
+[text] q
+[text] a
+[text] b
+[password] p
+[area] m
+[area] m2
+x.8tml
+[check] c
+[check] c2
+[radio] r
+[radio] r
+[select] s
+[select] e
+[select] long
+[submit] go
+[reset] r2
+[text] t

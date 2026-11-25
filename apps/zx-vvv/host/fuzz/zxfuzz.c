@@ -613,6 +613,9 @@ static const char *const pieces[] = {
     "\n\n", " ", "                                  ", "`", "\x7F", "\x80", "\xFF", "\x00",
     "http://", "https://a.b/", "../", "./", "#frag", "?q=1", "mailto:x", "%", "@",
     "bg: red\n", "zx.text: blue\n", "h1: yellow reverse center upper\n", "link-sel: \n",
+    ":::form post a\n", "? select s ", "- v ", "+ v ", "? check c checked ", "? radio r ",
+    "? area a rows=", "? password p ", "? submit go ", "? reset r ", "? hidden h ",
+    "value=\"a b\" ", "value=\"", "max=99999 ", "rows=9999 ", "max=0 ", "checked ", "\"",
 };
 
 static void put(uint8_t *out, long *n, long cap, const void *src, long len)

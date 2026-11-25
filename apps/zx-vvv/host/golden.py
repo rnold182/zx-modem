@@ -6,8 +6,8 @@ tool's caption line. The Spectrum's screens, read back as text
 (host/tools/zxscreen.py) and put one after another, must match it.
 
 A page with a hand-written <name>.expect.txt is left alone: that is for
-behaviour the reference tool doesn't have (forms, which zx-vvv skips until
-M8, are drawn by the tool).
+behaviour the reference tool doesn't have (the page over 64 screens, which
+zx-vvv cuts).
 
 Usage: python golden.py [--check] [folders...]   (default: testpages/;
        --check: run `8tml check` on the pages too)

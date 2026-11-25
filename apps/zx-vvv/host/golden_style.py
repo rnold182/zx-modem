@@ -3,9 +3,11 @@
 For every test page this writes, next to the layout golden file:
   <name>.style.json  every cell: [character, ink, paper, bright, bold, italic]
                      as zx-vvv must draw it (rows as in .zx.txt)
-  <name>.sel.json    screen 1 with the first link selected (only when that
-                     link is on screen 1): what moving the focus to it shows
-  <name>.links.txt   the page's link addresses, in order (the L list), if any
+  <name>.sel.json    screen 1 with the first link or field focused (only when
+                     it is on screen 1): what moving the focus to it shows
+  <name>.links.txt   the L list, if any: the page's links and form fields in
+                     focus order (the reference's doc.focus), a link as its
+                     address, a field as "[type] name"
 
 The reference renderer (spec tools/tml/render.py) gives each cell an 8TML
 colour and reverse; b and i come from its parser's runs. The colours are
@@ -105,10 +107,10 @@ def main(argv):
         rows, _ = rows_of(doc, page)
         if os.path.exists(name + '.expect.txt'):
             n = len(open(name + '.expect.txt', encoding='utf-8').read().rstrip('\n').split('\n'))
-            rows = rows[:n] if 'toolong' in name else None   # forms: the reference draws them
+            rows = rows[:n] if 'toolong' in name else None
         if rows is not None:
             json.dump(rows, open(name + '.style.json', 'w'), separators=(',', ':'))
-        links = [link.url for link in doc.links]
+        links = [doc.links[x].url if kind == 'link' else f'[{x.type}] {x.name}' for kind, x in doc.focus]
         if links:
             with open(name + '.links.txt', 'w', encoding='utf-8', newline='\n') as f:
                 f.write(''.join(u + '\n' for u in links))
@@ -117,8 +119,8 @@ def main(argv):
         sel = name + '.sel.json'
         if os.path.exists(sel):
             os.remove(sel)
-        if doc.links and rows is not None:
-            selrows, _ = rows_of(doc, page, ('link', 0))
+        if doc.focus and rows is not None:
+            selrows, _ = rows_of(doc, page, doc.focus[0])
             first = next((i for i, (a, b) in enumerate(zip(rows, selrows)) if a != b), None)
             if first is not None and first < 22:
                 json.dump(selrows[:22], open(sel, 'w'), separators=(',', ':'))

@@ -12,9 +12,8 @@ in OUT_DIR with both layouts.
 
     python difftest.py COUNT SEED OUT_DIR [--build build]
 
-Forms are left out (zx-vvv shows them from M8 on), so are pages longer than
-the browser's 64 screens and source lines over 255 characters (zx-vvv cuts
-them, which the spec allows).
+Pages longer than the browser's 64 screens are left out, so are source
+lines over 255 characters (zx-vvv cuts them, which the spec allows).
 """
 import os
 import random
@@ -70,8 +69,36 @@ def inline(r, n):
     return ' '.join(out)
 
 
+FIELD_TYPES = ('text', 'password', 'area', 'check', 'radio', 'select', 'hidden', 'submit', 'reset')
+
+
+def form(r):
+    """A form: fields of every type with odd options and labels, some text."""
+    lines = [':::form ' + r.choice(('get /f', 'post x.php', '', 'put y', 'get'))]
+    for _ in range(r.randint(1, 8)):
+        if r.random() < 0.15:
+            lines.append(inline(r, r.randint(1, 8)))
+            continue
+        t = r.choice(FIELD_TYPES + ('bogus',))
+        name = r.choice(('n', 'name', 'a.b', 'x-1', ''))
+        opts = []
+        for _ in range(r.randint(0, 3)):
+            opts.append(r.choice(('max=5', 'max=40', 'max=0', 'rows=2', 'rows=x', 'checked',
+                                  'value=hi', 'value="a b c"', 'value=', 'max=300')))
+        label = inline(r, r.randint(0, 6)).replace('<br>', '')
+        lines.append(' '.join(['?', t, name] + opts + [label]).rstrip())
+        if t == 'select':
+            for _ in range(r.randint(0, 3)):
+                lines.append(r.choice('-+') + ' ' + r.choice(('v1', 'x', 'long')) + ' ' + inline(r, r.randint(0, 9)).replace('<br>', ''))
+    if r.random() < 0.9:
+        lines.append(':::')
+    return '\n'.join(lines)
+
+
 def block(r, state):
     x = r.random()
+    if x < 0.08:
+        return form(r)
     if x < 0.08:
         return '#' * r.randint(1, 4) + ' ' + ('<center>' if r.random() < 0.2 else '') + inline(r, r.randint(1, 8))
     if x < 0.2:

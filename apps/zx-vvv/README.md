@@ -93,6 +93,7 @@ that link. Details: the comments in `zx/render.asm`.
 | `zx/vvv.asm` | the browser (→ `vvv.bin`, embedded in the firmware as app 2): keys, focus, history, the link list |
 | `zx/render.asm` | the 8TML renderer: header, blocks, inline markup, colours and fonts, wrap, screen bookmarks, link runs |
 | `zx/style.asm` | stylesheets: 8SS parsing, the cascade, role colours as ZX attributes |
+| `zx/forms.asm` | forms (M8): field lines parsed and drawn as the reference does, fields in the focus order with the links |
 | `zx/url.asm` | address rules in Z80 |
 | `zx/urltest.asm` | the Spectrum self-test of `url.asm` (not shipped) |
 | `host/url.c` | the C reference of the address rules, with the rules spelled out |

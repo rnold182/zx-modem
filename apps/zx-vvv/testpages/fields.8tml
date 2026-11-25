@@ -1,0 +1,40 @@
+---
+8tml: 1
+title: Fields
+---
+# Every field
+
+Before the form, a [link](a.8tml).
+
+:::form get /search
+? text q Search
+? text a
+? text b value="hi there" max=5 A label that is quite long and wraps around the box
+? password p value=abc Pw
+? area m rows=2
+? area m2 rows=3 max=100 Your message, please
+? check c checked Tick [a link](x.8tml) here
+? check c2 value=yes Not ticked
+? radio r value=1 checked One
+? radio r value=2 [ ] spaced label that goes on and on to wrap it
+? select s Pick
+- 1 One
++ 2 *Two* longer
+- 3
+? select e
+? select long A select with long options
+- a An option label that is far too long to fit in a box
+- b Short
+? submit
+? submit go value=ok Go *now*
+? reset r2 Clear <red>all</>
+? hidden h value=1 hid
+? bogus x
+?
+? text t max=0 rows=x checked label
+- not an option (a list item now)
+:::
+
+? not a field outside a form
+
+* a list after the form

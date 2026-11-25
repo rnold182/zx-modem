@@ -1,6 +1,6 @@
-; render.asm - zx-vvv's 8TML renderer (M3, M4): header, blocks, inline
+; render.asm - zx-vvv's 8TML renderer (M3, M4, M8): header, blocks, inline
 ; markup with colours and bold/italic, word wrap, screen bookmarks for
-; paging, and where the links are.
+; paging, where the links are, and form fields (forms.asm).
 ;
 ; It follows the 8TML 1 reference tool (spec tools/tml/parser.py and
 ; render.py) step for step, so its screens match `8tml render -m zx
@@ -61,6 +61,8 @@ K_QUOTE		equ	8
 ; st_flags
 F_GAP		equ	0		; a blank line is waiting to become an empty row
 F_BLOCKS	equ	1		; a block has been shown
+F_FORM		equ	2		; inside :::form (forms.asm)
+F_SELECT	equ	3		; after a select: option lines follow
 
 ; =============================================================================
 ; Header
@@ -686,6 +688,10 @@ render_snap:
 ; a found link ends it early through render_abort.
 render_go:
 	ld	(render_sp),sp
+	xor	a
+	ld	(lk_is_field),a
+	ld	(wr_mute),a
+	ld	(in_box),a
 	ld	a,(is_page)
 	or	a
 	jp	z,render_plain
@@ -1039,12 +1045,33 @@ render_body:
 	ret	c
 	call	classify
 	ld	a,(k_kind)
+	cp	K_PRE
+	jp	z,.pre
+	cp	K_FENCE
+	jp	z,.fence
+	ld	hl,st_flags		; in a form: field lines
+	bit	F_FORM,(hl)
+	jr	z,.nofield
+	call	is_field_line
+	jr	nz,.nofield
+	ld	hl,st_flags
+	res	F_SELECT,(hl)
+	call	field_block
+	jr	.loop
+.nofield:
+	ld	hl,st_flags		; after a select: its option lines
+	bit	F_SELECT,(hl)
+	jr	z,.noopt
+	call	is_option_line
+	jr	nz,.noopt
+	call	option_skip
+	jr	.loop
+.noopt:
+	ld	hl,st_flags		; any other line ends the options
+	res	F_SELECT,(hl)
+	ld	a,(k_kind)
 	cp	K_BLANK
 	jr	z,.blank
-	cp	K_PRE
-	jr	z,.pre
-	cp	K_FENCE
-	jr	z,.fence
 	ld	hl,st_num		; number, last_number = last_number, None
 	ld	de,num_prev
 	ld	bc,NUM_MAX+1
@@ -1078,7 +1105,7 @@ render_body:
 	djnz	.r
 	ld	a,WIDTH
 	call	row_emit
-	jr	.loop
+	jp	.loop
 .pre:
 	xor	a
 	ld	(st_num),a
@@ -1089,7 +1116,7 @@ render_body:
 	ld	hl,linebuf
 	ld	de,s_pre
 	call	starts3			; (the line's end has spaces or a 0)
-	jr	z,.loop
+	jp	z,.loop
 	ld	a,(line_len)
 	cp	WIDTH+1
 	jr	c,.pc
@@ -1112,7 +1139,12 @@ render_body:
 	call	strip_span
 	ld	a,b
 	or	a
-	jp	z,.loop			; a stray ":::"
+	jr	nz,.word
+	ld	hl,st_flags		; ":::" alone: the end of a form (or stray)
+	res	F_FORM,(hl)
+	res	F_SELECT,(hl)
+	jp	.loop
+.word:
 	ld	c,b			; the first word
 	push	hl
 .w:
@@ -1129,8 +1161,9 @@ render_body:
 	ld	de,w_form
 	call	word_is
 	jr	nz,.skip
-	ld	a,1
-	ld	(has_form),a		; forms come in M8: skipped like unknown blocks
+	ld	hl,st_flags		; :::form (inside a form: ignored)
+	set	F_FORM,(hl)
+	jp	.loop
 .skip:
 	call	src_next
 	ret	c			; open at the end
@@ -1443,6 +1476,11 @@ produce_char:
 	ld	a,b
 	cp	K_TEXT
 	jr	nz,.stop
+	ld	a,(st_flags)		; in a form a field line ends it
+	bit	F_FORM,a
+	jr	z,.cont
+	call	is_field_line
+	jr	z,.stop
 .cont:
 	ld	hl,(k_text)
 	call	pr_part
@@ -1811,9 +1849,13 @@ inline_run:
 	ld	(lk_cur),hl
 	inc	hl
 	ld	(st_links),hl
+	ld	a,(wr_mute)		; only counting a label: nobody looks
+	dec	a
+	jr	z,.nohook
 	ld	a,(mode)
 	cp	MODE_FIND
 	call	nc,link_hook
+.nohook:
 	; the label: the text, or the url if there is none
 	pop	hl
 	inc	hl
@@ -2104,6 +2146,31 @@ tag_name_kind:
 ; render.cells()): the role's colour (or the link's), em's then strong's
 ; colour for i and b, then an inline colour; reversed by the role or <rev>.
 cell_style:
+	ld	a,(in_box)		; a field's box: field / field-sel, its
+	or	a			; colour and reverse only, no case
+	jr	z,.nobox
+	ld	hl,(fld_id)
+	ld	de,(sel_link)
+	or	a
+	sbc	hl,de
+	ld	a,S_FIELD
+	jr	nz,.fs
+	ld	a,S_FIELDSEL
+.fs:
+	call	role_style
+	ld	a,e
+	and	1
+	ld	c,a
+	ld	a,d
+	call	mk_attr
+	ld	c,a
+	ld	b,0
+	ld	d,0
+	ld	a,(fld_id)
+	or	0x80
+	ld	e,a
+	ret
+.nobox:
 	ld	a,(in_link)
 	or	a
 	jr	z,.blk
@@ -2197,6 +2264,11 @@ cell_style:
 ; wr_char: one character of the block's text. Keeps HL.
 wr_char:
 	push	hl
+	ld	l,a
+	ld	a,(wr_mute)
+	or	a
+	ld	a,l
+	jr	nz,.mute
 	cp	BRK
 	jr	z,.brk
 	cp	' '
@@ -2262,6 +2334,42 @@ wr_char:
 	call	place_word
 	call	wr_flush		; the line, with what fits of the spaces
 	jr	.done
+.mute:					; counting a label (forms.asm): its length,
+	push	af			; and its first CAP_MAX characters in case
+	ld	hl,(mt_len)
+	inc	hl
+	ld	(mt_len),hl
+	ld	a,h
+	or	a
+	jr	nz,.mend
+	ld	a,l
+	cp	CAP_MAX+1
+	jr	nc,.mend
+	push	hl
+	call	cell_style		; D = upper case
+	pop	hl
+	pop	af
+	push	af
+	inc	d
+	dec	d
+	jr	z,.mc
+	cp	'a'
+	jr	c,.mc
+	cp	'z'+1
+	jr	nc,.mc
+	sub	32
+.mc:
+	cp	BRK
+	jr	nz,.mk
+	ld	a,' '
+.mk:
+	ld	de,cap_buf-1
+	add	hl,de
+	ld	(hl),a
+.mend:
+	pop	af
+	pop	hl
+	ret
 
 ; cells_at: HL = A * CELL.
 cells_at:
@@ -2530,6 +2638,7 @@ to_lower:
 	ret
 
 	include	"style.asm"
+	include	"forms.asm"
 
 ; =============================================================================
 ; Words and tables

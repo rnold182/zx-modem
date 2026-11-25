@@ -15,8 +15,11 @@ Cases: content types (shown or refused), redirects (each kind, relative
 and absolute Location, the 5-redirect limit), error statuses with a body,
 UTF-8 that the modem turns into ASCII, chunked and connection-close
 bodies, a page bigger than zx-vvv's buffer, a server too slow to answer,
-unreachable hosts, and relative links of every form.
+unreachable hosts, and relative links of every form. Forms (M8): the form
+test pages from apps/zx-vvv/testpages, and the spec's guestbook example if
+the spec package is there.
 """
+import os
 import socket
 import sys
 import time
@@ -24,6 +27,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
+HERE = os.path.dirname(os.path.abspath(__file__))
+FORM_PAGES = {                          # served at /forms/<name>
+    'fields.8tml': os.path.join(HERE, '..', 'testpages', 'fields.8tml'),
+    'form.8tml': os.path.join(HERE, '..', 'testpages', 'form.8tml'),
+    'guestbook.8tml': os.path.join(HERE, '..', 'spec', 'spec', 'examples', 'guestbook.8tml'),
+}
 
 
 def page(title, *lines):
@@ -47,6 +56,21 @@ HOME = page(
     '[Redirects](/redirects.8tml)',
     '[Errors and odd servers](/errors.8tml)',
     '[Relative links](/dir/index.8tml)',
+    '[Forms](/forms/index.8tml)',
+)
+
+FORMS = page(
+    'Forms',
+    '# Forms (M8)',
+    '',
+    'Each page should look like the 8TML reference draws it. 6/7 move',
+    'over links and fields; a field shows as [type] name below.',
+    '',
+    '* [Every field](fields.8tml): every type, odd options, 2 screens',
+    '* [A small form](form.8tml): a text field and a button',
+    "* [The spec's guestbook](guestbook.8tml): if the spec is here",
+    '',
+    '[Home](/index.8tml)',
 )
 
 TYPES = page(
@@ -156,6 +180,15 @@ class Handler(BaseHTTPRequestHandler):
         host = self.headers.get('Host', f'localhost:{PORT}')
         if p in ('/', '/index.8tml'):
             self.send(200, HOME)
+        elif p in ('/forms/', '/forms/index.8tml'):
+            self.send(200, FORMS)
+        elif p.startswith('/forms/') and p[7:] in FORM_PAGES:
+            try:
+                with open(FORM_PAGES[p[7:]], 'rb') as f:
+                    self.send(200, f.read())
+            except OSError:
+                self.send(404, page('Not here', '# Not here', '', 'That page is not on this PC.',
+                                    '', '[Forms](/forms/index.8tml)'))
         elif p == '/types.8tml':
             self.send(200, TYPES)
         elif p == '/redirects.8tml':

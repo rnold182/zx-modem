@@ -82,7 +82,7 @@ if(SJASMPLUS)
                 --lst=vvv.lst --sym=vvv.sym ${VVV_DIR}/zx/vvv.asm
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
         DEPENDS ${VVV_DIR}/zx/vvv.asm ${VVV_DIR}/zx/url.asm ${VVV_DIR}/zx/render.asm
-                ${VVV_DIR}/zx/style.asm ${ZX_LIB_SRCS}
+                ${VVV_DIR}/zx/style.asm ${VVV_DIR}/zx/forms.asm ${ZX_LIB_SRCS}
         COMMENT "Assembling apps/zx-vvv -> vvv.bin"
         VERBATIM)
     add_custom_command(
@@ -100,8 +100,18 @@ if(SJASMPLUS)
         DEPENDS ${VVV_DIR}/zx/urltest.asm ${VVV_DIR}/zx/url.asm ${URL_CASES_INC} ${ZX_LIB_SRCS}
         COMMENT "Assembling apps/zx-vvv URL self-test -> urltest.bin"
         VERBATIM)
+    # The fuzzer's code map (apps/zx-vvv/host/fuzz): rebuilt with the menu and
+    # zx-vvv, so it never falls behind them.
+    set(ZX_MAP ${CMAKE_BINARY_DIR}/zx.map)
+    add_custom_command(
+        OUTPUT ${ZX_MAP}
+        COMMAND ${Python3_EXECUTABLE} ${VVV_DIR}/host/fuzz/mkmap.py ${ZX_MAP}
+                ${CMAKE_BINARY_DIR}/menu.lst ${CMAKE_BINARY_DIR}/vvv.lst
+        DEPENDS ${ZXMENU_TAP} ${VVV_BIN} ${VVV_DIR}/host/fuzz/mkmap.py
+        COMMENT "Code map for zxfuzz -> zx.map"
+        VERBATIM)
     add_custom_target(zx ALL DEPENDS ${MODEMTEST_TAP} ${ZXMENU_TAP} ${WIFISETUP_BIN} ${FETCHDEMO_TAP}
-                      ${VVV_BIN} ${URLTEST_BIN})
+                      ${VVV_BIN} ${URLTEST_BIN} ${ZX_MAP})
 else()
     message(STATUS "sjasmplus not found: skipping zx/ targets (install it and re-run cmake)")
 endif()
